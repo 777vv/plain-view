@@ -66,7 +66,7 @@ popup.html / viewer.html  # 扩展页 HTML
 
 ## 打包
 
-`npm run package` 会先 `npm run build`,再调 `scripts/package.ps1` 把扩展打包成 `release/plain-view.zip`(约 28 KB)。
+`npm run package` 会先 `npm run build`,再调 `scripts/package.ps1` 把扩展打包成 `release/plain-view.zip`。
 
 ### 打包白名单(只列「浏览器加载必需」的文件)
 

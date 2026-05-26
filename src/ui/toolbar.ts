@@ -2,10 +2,7 @@ import { cycleTheme, getStoredTheme, themeLabel } from './themes';
 import { cycleFontSize, getStoredFontSize, fontSizeLabel, FontSize } from './fontSize';
 import { t, isZh } from './i18n';
 
-// Chinese locale → Gitee (faster in China); others → GitHub.
-const REPO_URL = isZh()
-  ? 'https://gitee.com/vv777/plain-view'
-  : 'https://github.com/777vv/plain-view';
+const REPO_URL = 'https://github.com/777vv/plain-view';
 
 // "主题：亮白" vs "Theme: Light" — colon style differs between locales.
 const themeTip = (theme: ReturnType<typeof getStoredTheme>): string =>
