@@ -1,5 +1,5 @@
 import { createToolbar } from '../ui/toolbar';
-import { setupPage, escHtml } from '../ui/common';
+import { setupPage, escHtml, copyText } from '../ui/common';
 
 export function render(raw: string): void {
   const filename = location.pathname.split('/').pop() || 'file.yaml';
@@ -25,7 +25,7 @@ export function render(raw: string): void {
       yamlRoot.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
     },
-    onCopy: () => navigator.clipboard.writeText(raw).catch(() => {}),
+    onCopy: () => { copyText(raw); },
   });
 
   document.body.prepend(searchBar, toolbar);

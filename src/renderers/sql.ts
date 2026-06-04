@@ -1,5 +1,5 @@
 import { createToolbar } from '../ui/toolbar';
-import { setupPage, escHtml } from '../ui/common';
+import { setupPage, escHtml, copyText } from '../ui/common';
 
 // Core SQL keywords
 const KEYWORDS = new Set([
@@ -56,7 +56,7 @@ export function render(raw: string): void {
       sqlRoot.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
     },
-    onCopy: () => navigator.clipboard.writeText(formatted).catch(() => {}),
+    onCopy: () => { copyText(formatted); },
   });
 
   document.body.prepend(searchBar, toolbar);

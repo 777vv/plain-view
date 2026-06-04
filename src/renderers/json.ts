@@ -1,5 +1,5 @@
 import { createToolbar } from '../ui/toolbar';
-import { setupPage } from '../ui/common';
+import { setupPage, copyText } from '../ui/common';
 
 export function render(raw: string): void {
   let data: unknown;
@@ -33,7 +33,7 @@ export function render(raw: string): void {
       treeWrap.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
     },
-    onCopy: () => navigator.clipboard.writeText(pretty).catch(() => {}),
+    onCopy: () => { copyText(pretty); },
   });
 
   document.body.prepend(toolbar);

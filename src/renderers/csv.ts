@@ -1,5 +1,5 @@
 import { createToolbar } from '../ui/toolbar';
-import { setupPage } from '../ui/common';
+import { setupPage, copyText } from '../ui/common';
 
 export function render(raw: string, srcPath?: string): void {
   const path = srcPath ?? location.pathname;
@@ -34,7 +34,7 @@ export function render(raw: string, srcPath?: string): void {
       wrap.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
     },
-    onCopy: () => navigator.clipboard.writeText(serializeTable(table, delimiter)).catch(() => {}),
+    onCopy: () => { copyText(serializeTable(table, delimiter)); },
   });
 
   document.body.prepend(searchBar, toolbar);

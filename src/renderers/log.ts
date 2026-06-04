@@ -1,5 +1,5 @@
 import { createToolbar } from '../ui/toolbar';
-import { setupPage } from '../ui/common';
+import { setupPage, copyText } from '../ui/common';
 
 type Level = 'error' | 'warn' | 'info' | 'debug' | 'trace' | '';
 
@@ -36,7 +36,7 @@ export function render(raw: string): void {
       logRoot.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
     },
-    onCopy: () => navigator.clipboard.writeText(raw).catch(() => {}),
+    onCopy: () => { copyText(raw); },
   });
 
   document.body.prepend(toolbar);

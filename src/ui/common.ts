@@ -11,6 +11,23 @@ export function setupPage(title: string): void {
   applyFontSize(getStoredFontSize());
 }
 
+// navigator.clipboard is only defined in secure contexts (HTTPS / localhost).
+// On plain http:// pages it's undefined, so we need an execCommand fallback.
+export async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return; }
+    catch { /* fall through to legacy path */ }
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:absolute;left:-9999px;top:0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); }
+  finally { document.body.removeChild(ta); }
+}
+
 export function escHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
