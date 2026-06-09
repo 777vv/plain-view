@@ -2,7 +2,7 @@
 
 > **中文** · [English](README.en.md)
 
-基于 Chromium 的浏览器扩展。把浏览器变成 **JSON / Markdown / SQL / YAML / CSV / LOG** 文件的友好查看器，同时内置**工作台**提供翻译、文本对比、二维码生成、Base64/URL 编解码、备忘录等实用工具。零运行时依赖、纯手写、无打包器。
+基于 Chromium 的浏览器扩展（压缩包解压后大小不到300KB）。把浏览器变成 **JSON/Markdown/SQL**等文件的友好查看器，同时插件内置了**工作台**功能，工作台集成了 JSON 格式化、Markdown实时预览、SQL美化、Base64编解码、URL、解析、翻译、文本对比、二维码生成、备忘录等常用功能。
 
 **源码仓库:** [GitHub](https://github.com/777vv/plain-view) · [Gitee](https://gitee.com/vv777/plain-view)
 
@@ -72,6 +72,14 @@
 
 ---
 
+## 工作台效果一览
+
+![p1.png](/picture/p1.png)
+
+![p2.png](/picture/p2.png)
+
+![p3.png](/picture/p3.png)
+
 ## 从源码构建(开发者)
 
 ```bash
@@ -117,3 +125,5 @@ scripts/
 manifest.json
 popup.html / viewer.html / playground.html
 ```
+## 联系作者
+有任何问题可请联系作者VX：yuxi250428
