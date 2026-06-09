@@ -51,7 +51,7 @@ function stripJsonp(raw: string): string {
 
 // ── Tree builder ──────────────────────────────────────────────
 
-function buildNode(value: unknown, key: string | null, isLast: boolean, depth: number): HTMLElement {
+export function buildNode(value: unknown, key: string | null, isLast: boolean, depth: number): HTMLElement {
   if (Array.isArray(value))
     return buildCollection(value, key, isLast, depth, true);
   if (value !== null && typeof value === 'object')

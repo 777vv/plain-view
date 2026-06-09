@@ -69,6 +69,26 @@ body {
 .popup-section { padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .popup-section:last-child { border-bottom: none; }
 
+/* Primary action button (Open Playground) */
+.popup-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter .12s;
+}
+.popup-action:hover { filter: brightness(.96); }
+.popup-action-arrow { font-size: 14px; }
+
 .section-label {
   font-size: 11px;
   font-weight: 600;
@@ -76,32 +96,6 @@ body {
   letter-spacing: .06em;
   color: var(--text-muted);
   margin-bottom: 8px;
-}
-
-/* Theme grid */
-.theme-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.theme-btn {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--bg-2);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background .12s, border-color .12s;
-}
-.theme-btn:hover   { background: var(--bg-3); }
-.theme-btn.active  {
-  background: var(--accent-bg);
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
 }
 
 /* Format toggles */

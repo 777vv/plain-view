@@ -1,59 +1,62 @@
-import { THEMES, Theme, applyTheme, getStoredTheme, themeLabel } from '../ui/themes';
+import { t } from '../ui/i18n';
 
-const FORMATS: { id: string; label: string }[] = [
-  { id: 'json',     label: 'JSON / JSONP' },
-  { id: 'markdown', label: 'Markdown' },
-  { id: 'sql',      label: 'SQL' },
-  { id: 'yaml',     label: 'YAML' },
-  { id: 'csv',      label: 'CSV / TSV' },
-  { id: 'log',      label: 'LOG / TXT' },
+// All features that appear as chips in the playground. The `fileFormats`
+// subset also controls content-script rendering (see src/content/index.ts).
+const FEATURES: { id: string; zh: string; en: string }[] = [
+  { id: 'json',      zh: 'JSON',        en: 'JSON' },
+  { id: 'markdown',  zh: 'Markdown',    en: 'Markdown' },
+  { id: 'sql',       zh: 'SQL',         en: 'SQL' },
+  { id: 'translate', zh: '翻译',         en: 'Translate' },
+  { id: 'url',       zh: 'URL 编解码',   en: 'URL Decode' },
+  { id: 'base64',    zh: 'Base64 编解码', en: 'Base64' },
+  { id: 'diff',      zh: '文本对比',     en: 'Compare' },
+  { id: 'qr',        zh: '二维码',       en: 'QR Code' },
+  { id: 'memo',      zh: '备忘录',       en: 'Memo' },
 ];
 
-const DISABLED_KEY = 'disabledFormats';
+const STORAGE_KEY = 'disabledFormats';
 
 async function getDisabled(): Promise<Set<string>> {
-  const data = await chrome.storage.local.get(DISABLED_KEY);
-  return new Set((data[DISABLED_KEY] as string[]) ?? []);
+  const data = await chrome.storage.local.get(STORAGE_KEY);
+  return new Set((data[STORAGE_KEY] as string[]) ?? []);
 }
 
 async function setDisabled(disabled: Set<string>): Promise<void> {
-  await chrome.storage.local.set({ [DISABLED_KEY]: [...disabled] });
+  await chrome.storage.local.set({ [STORAGE_KEY]: [...disabled] });
 }
 
 // ── Init ──────────────────────────────────────────────────────
 
 const disabled = await getDisabled();
 
-// Theme buttons
-const themeGrid = document.getElementById('theme-grid')!;
-THEMES.forEach((t) => {
-  const btn = document.createElement('button');
-  btn.className = 'theme-btn' + (t === getStoredTheme() ? ' active' : '');
-  btn.textContent = themeLabel(t);
-  btn.addEventListener('click', () => {
-    applyTheme(t);
-    // Send message to active tab to switch theme
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tabId = tabs[0]?.id;
-      if (tabId != null) {
-        chrome.tabs.sendMessage(tabId, { type: 'SET_THEME', theme: t }).catch(() => {});
-      }
-    });
-    themeGrid.querySelectorAll('.theme-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-  themeGrid.appendChild(btn);
+// Remove ghost entries for features that no longer exist
+const knownIds = new Set(FEATURES.map((f) => f.id));
+let cleaned = false;
+for (const id of disabled) {
+  if (!knownIds.has(id)) { disabled.delete(id); cleaned = true; }
+}
+if (cleaned) setDisabled(disabled);
+
+// Open Playground
+const playgroundLabel = document.getElementById('open-playground-label');
+if (playgroundLabel) playgroundLabel.textContent = t('打开工作台', 'Open Playground');
+document.getElementById('open-playground')?.addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('playground.html') });
 });
 
-// Format toggles
-const toggleContainer = document.getElementById('format-toggles')!;
-FORMATS.forEach(({ id, label }) => {
+// i18n the section label
+const sectionLabel = document.getElementById('section-label');
+if (sectionLabel) sectionLabel.textContent = t('功能开关', 'Features');
+
+const toggleContainer = document.getElementById('feature-toggles')!;
+
+FEATURES.forEach(({ id, zh, en }) => {
   const row = document.createElement('div');
   row.className = 'format-row';
 
   const nameEl = document.createElement('span');
   nameEl.className = 'format-name';
-  nameEl.textContent = label;
+  nameEl.textContent = t(zh, en);
 
   const switchWrap = document.createElement('label');
   switchWrap.className = 'toggle-switch';
@@ -63,8 +66,17 @@ FORMATS.forEach(({ id, label }) => {
   input.checked = !disabled.has(id);
 
   input.addEventListener('change', () => {
-    if (input.checked) disabled.delete(id);
-    else disabled.add(id);
+    if (input.checked) {
+      disabled.delete(id);
+    } else {
+      // Don't allow turning off the last enabled feature
+      const enabled = FEATURES.filter((f) => !disabled.has(f.id) && f.id !== id);
+      if (enabled.length === 0) {
+        input.checked = true;
+        return;
+      }
+      disabled.add(id);
+    }
     setDisabled(disabled);
   });
 
@@ -74,30 +86,4 @@ FORMATS.forEach(({ id, label }) => {
   switchWrap.append(input, track);
   row.append(nameEl, switchWrap);
   toggleContainer.appendChild(row);
-});
-
-// Status: query active tab for current format
-chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-  const tab = tabs[0];
-  const url = tab?.url ?? '';
-  const statusDot  = document.getElementById('status-dot')!;
-  const statusText = document.getElementById('status-text')!;
-
-  const ext = url.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
-  const extMap: Record<string, string> = {
-    json: 'JSON', jsonp: 'JSON',
-    md: 'Markdown', markdown: 'Markdown',
-    sql: 'SQL',
-    yaml: 'YAML', yml: 'YAML',
-    csv: 'CSV', tsv: 'TSV',
-    log: 'LOG', txt: 'LOG',
-  };
-
-  if (ext in extMap) {
-    statusDot.classList.add('active');
-    statusText.textContent = `Rendering as ${extMap[ext]}`;
-  } else {
-    statusDot.classList.add('inactive');
-    statusText.textContent = 'No file detected on this page';
-  }
 });

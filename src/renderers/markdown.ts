@@ -28,7 +28,7 @@ export function render(raw: string): void {
   rawDiv.textContent = raw;
   content.appendChild(rawDiv);
 
-  const { toolbar, searchBar } = createToolbar('MD', filename, raw, {
+  const { toolbar } = createToolbar('MD', filename, raw, {
     onRaw: (isRaw) => {
       mdRoot.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
@@ -36,13 +36,13 @@ export function render(raw: string): void {
     onCopy: () => { copyText(raw); },
   });
 
-  document.body.prepend(searchBar, toolbar);
+  document.body.prepend(toolbar);
   document.body.appendChild(content);
 }
 
 // ── Basic Markdown → HTML converter ──────────────────────────
 
-function mdToHtml(md: string): string {
+export function mdToHtml(md: string): string {
   const lines = md.replace(/\r\n/g, '\n').split('\n');
   const out: string[] = [];
   let i = 0;

@@ -14,8 +14,8 @@ New-Item -ItemType Directory -Path $staging -Force | Out-Null
 # Whitelist: only files the browser actually needs at runtime.
 # Do NOT bundle docs (README/CLAUDE/PRD), git metadata (.gitignore),
 # tooling configs (tsconfig, package.json), source, or node_modules.
-Copy-Item 'manifest.json','popup.html','popup.css','viewer.html' $staging
-Copy-Item 'dist','styles' $staging -Recurse
+Copy-Item 'manifest.json','popup.html','popup.css','viewer.html','playground.html' $staging
+Copy-Item 'dist','styles','icons' $staging -Recurse
 
 Compress-Archive -Path $staging -DestinationPath $zip -Force
 Remove-Item $staging -Recurse -Force

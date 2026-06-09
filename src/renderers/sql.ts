@@ -87,7 +87,7 @@ const INDENT_CONTENT = new Set(['SELECT', 'SET']);
 // lists — stay inline to avoid needlessly tall output.
 const LIST_BREAK_CLAUSE = new Set(['CREATE']);
 
-function formatSQL(sql: string): string {
+export function formatSQL(sql: string): string {
   const tokens = tokenize(sql.replace(/\r\n/g, '\n').replace(/\t/g, '  '));
   const lines: string[] = [];
   let line = '';
@@ -276,7 +276,7 @@ function tokenize(sql: string): Token[] {
 
 // ── HTML highlighter ──────────────────────────────────────────
 
-function highlight(sql: string): string {
+export function highlight(sql: string): string {
   const tokens = tokenize(sql);
   return tokens.map((t) => {
     const esc = escHtml(t.value);

@@ -20,7 +20,7 @@ export function render(raw: string): void {
   rawDiv.textContent = raw;
   content.appendChild(rawDiv);
 
-  const { toolbar, searchBar } = createToolbar('YAML', filename, raw, {
+  const { toolbar } = createToolbar('YAML', filename, raw, {
     onRaw: (isRaw) => {
       yamlRoot.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
@@ -28,13 +28,13 @@ export function render(raw: string): void {
     onCopy: () => { copyText(raw); },
   });
 
-  document.body.prepend(searchBar, toolbar);
+  document.body.prepend(toolbar);
   document.body.appendChild(content);
 }
 
 // ── Regex-based YAML highlighter ─────────────────────────────
 
-function highlight(yaml: string): string {
+export function highlight(yaml: string): string {
   return yaml
     .split('\n')
     .map(highlightLine)

@@ -29,7 +29,7 @@ export function render(raw: string, srcPath?: string): void {
   rawDiv.textContent = raw;
   content.appendChild(rawDiv);
 
-  const { toolbar, searchBar } = createToolbar(isTsv ? 'TSV' : 'CSV', filename, raw, {
+  const { toolbar } = createToolbar(isTsv ? 'TSV' : 'CSV', filename, raw, {
     onRaw: (isRaw) => {
       wrap.style.display = isRaw ? 'none' : '';
       rawDiv.style.display = isRaw ? '' : 'none';
@@ -37,11 +37,11 @@ export function render(raw: string, srcPath?: string): void {
     onCopy: () => { copyText(serializeTable(table, delimiter)); },
   });
 
-  document.body.prepend(searchBar, toolbar);
+  document.body.prepend(toolbar);
   document.body.appendChild(content);
 }
 
-function buildTable(rows: string[][]): HTMLTableElement {
+export function buildTable(rows: string[][]): HTMLTableElement {
   const [header, ...body] = rows;
   const table = document.createElement('table');
   table.className = 'fv-csv-table';
@@ -159,7 +159,7 @@ function serializeTable(table: HTMLTableElement, delimiter: string): string {
 
 // ── CSV parser ────────────────────────────────────────────────
 
-function detectDelimiter(raw: string): string {
+export function detectDelimiter(raw: string): string {
   const first = raw.slice(0, 2000);
   const commas = (first.match(/,/g) || []).length;
   const semis  = (first.match(/;/g) || []).length;
@@ -170,7 +170,7 @@ function detectDelimiter(raw: string): string {
   ].sort((a, b) => (b[1] as number) - (a[1] as number))[0][0] as string;
 }
 
-function parseCSV(raw: string, delimiter: string): string[][] {
+export function parseCSV(raw: string, delimiter: string): string[][] {
   const rows: string[][] = [];
   const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   let row: string[] = [];

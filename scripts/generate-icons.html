@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Plain View — Icon Generator</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", sans-serif; padding: 30px; max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 18px; }
+    .row { display: flex; gap: 24px; align-items: center; margin: 16px 0; }
+    canvas { border: 1px solid #ccc; image-rendering: pixelated; }
+    button {
+      padding: 10px 20px; font-size: 14px; cursor: pointer;
+      background: #16a34a; color: white; border: none; border-radius: 6px;
+    }
+    button:hover { background: #15803d; }
+    p.note { color: #666; font-size: 13px; line-height: 1.5; }
+    code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Plain View — 图标生成器</h1>
+  <p class="note">
+    点击下方按钮,会自动下载 4 张 PNG(16/32/48/128)到下载目录。<br>
+    下载后把它们放到项目的 <code>icons/</code> 文件夹里即可(目录不存在就新建)。
+  </p>
+
+  <div id="previews"></div>
+
+  <p><button id="download">下载全部 4 张 PNG</button></p>
+
+  <script>
+    const SIZES = [16, 32, 48, 128];
+    const BLUE = '#0550ae';
+    const WHITE = '#ffffff';
+
+    function draw(size) {
+      const c = document.createElement('canvas');
+      c.width = size; c.height = size;
+      const ctx = c.getContext('2d');
+
+      // Rounded green background
+      const r = size * 0.22;
+      ctx.fillStyle = BLUE;
+      roundRect(ctx, 0, 0, size, size, r);
+      ctx.fill();
+
+      // Hexagon logo
+      ctx.strokeStyle = WHITE;
+      ctx.fillStyle = WHITE;
+      ctx.lineWidth = Math.max(1, size * 0.08);
+      ctx.lineJoin = 'round';
+      const cx = size / 2, cy = size / 2;
+      const radius = size * 0.30;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 6 + i * Math.PI / 3;  // pointy-top
+        const x = cx + radius * Math.cos(a);
+        const y = cy + radius * Math.sin(a);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      return c;
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y,     x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x,     y + h, r);
+      ctx.arcTo(x,     y + h, x,     y,     r);
+      ctx.arcTo(x,     y,     x + w, y,     r);
+      ctx.closePath();
+    }
+
+    // Render previews
+    const wrap = document.getElementById('previews');
+    SIZES.forEach((s) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const c = draw(s);
+      const lbl = document.createElement('span');
+      lbl.textContent = `${s} × ${s}`;
+      row.append(c, lbl);
+      wrap.append(row);
+    });
+
+    // Download
+    document.getElementById('download').addEventListener('click', () => {
+      SIZES.forEach((s) => {
+        const c = draw(s);
+        c.toBlob((blob) => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `icon-${s}.png`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }, 'image/png');
+      });
+    });
+  </script>
+</body>
+</html>

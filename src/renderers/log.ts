@@ -43,7 +43,7 @@ export function render(raw: string): void {
   document.body.appendChild(content);
 }
 
-function buildLine(text: string, lineNum: number): HTMLElement {
+export function buildLine(text: string, lineNum: number): HTMLElement {
   const level = detectLevel(text);
 
   const line = document.createElement('div');

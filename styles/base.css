@@ -25,10 +25,10 @@
 
   /* Syntax tokens */
   --fv-key:           #c41a16;
-  --fv-string:        #2a00ff;
-  --fv-number:        #2a00ff;
-  --fv-boolean:       #2a00ff;
-  --fv-null:          #2a00ff;
+  --fv-string:        #032f62;
+  --fv-number:        #005cc5;
+  --fv-boolean:       #d73a49;
+  --fv-null:          #6f42c1;
   --fv-keyword:       #cf222e;
   --fv-comment:       #6e7781;
   --fv-function:      #8250df;
@@ -44,8 +44,8 @@
   --fv-log-trace:     #8250df;
 
   /* UI chrome */
-  --fv-badge-bg:      #ddf4ff;
-  --fv-badge-text:    #0550ae;
+  --fv-badge-bg:      #0550ae;
+  --fv-badge-text:    #ffffff;
   --fv-btn-radius:    6px;
   --fv-focus:         #0969da;
   --fv-shadow:        0 1px 3px rgba(0,0,0,.08);
@@ -58,7 +58,7 @@
 /* ── Theme: 暗黑 (VS Code Dark) ─────────────────────────────── */
 [data-fv-theme="github-dark"] {
   --fv-bg:            #1e1e1e;
-  --fv-bg-toolbar:    #252526;
+  --fv-bg-toolbar:    #0d2236;
   --fv-bg-hover:      #2a2d2e;
   --fv-bg-search:     #1e1e1e;
   --fv-border:        #3c3c3c;
@@ -74,10 +74,25 @@
   --fv-null:          #569cd6;
   --fv-punct:         #d4d4d4;
 
-  --fv-badge-bg:      #1f3548;
-  --fv-badge-text:    #9cdcfe;
+  --fv-badge-bg:      #58a6ff;
+  --fv-badge-text:    #0d1117;
   --fv-scroll:        #424242;
   --fv-scroll-hover:  #686868;
+}
+
+/* Dark-mode overrides for the brand-gradient toolbar / pane headers */
+[data-fv-theme="github-dark"] .fv-toolbar,
+[data-fv-theme="github-dark"] .fv-pg-pane-header {
+  background: linear-gradient(180deg, #0d2236 0%, #0a1a2a 100%);
+}
+[data-fv-theme="github-dark"] .fv-pg-chips {
+  border-image: linear-gradient(90deg, #58a6ff 0%, #79c0ff 100%) 1;
+}
+[data-fv-theme="github-dark"] .fv-pg-input:focus {
+  border-left-color: #58a6ff;
+}
+[data-fv-theme="github-dark"] .fv-pg-chip.active {
+  box-shadow: 0 0 8px rgba(88,166,255,.25);
 }
 
 
@@ -102,17 +117,18 @@ body.fv-size-medium { --fv-font-size: 18px; }
 body.fv-size-large  { --fv-font-size: 22px; }
 
 /* ── Scrollbar ──────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--fv-scroll); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--fv-scroll-hover); }
+::-webkit-scrollbar-thumb { background: var(--fv-scroll); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--fv-scroll-hover); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Toolbar ────────────────────────────────────────────────── */
 .fv-toolbar {
   position: fixed;
   top: 0; left: 0; right: 0;
   height: var(--fv-toolbar-h);
-  background: var(--fv-bg-toolbar);
+  background: linear-gradient(180deg, #f0f6fc 0%, #e8f0f8 100%);
   border-bottom: 1px solid var(--fv-border);
   display: flex;
   align-items: center;
@@ -129,11 +145,11 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 12px;
+  padding: 3px 12px;
+  border-radius: 14px;
   background: var(--fv-badge-bg);
   color: var(--fv-badge-text);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: .04em;
   text-transform: uppercase;
@@ -142,7 +158,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
 
 .fv-filename {
   color: var(--fv-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -151,20 +167,20 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 13px;
+  gap: 6px;
+  padding: 6px 14px;
   border: 1px solid transparent;
   border-radius: var(--fv-btn-radius);
   background: transparent;
   color: var(--fv-text);
   font-family: var(--fv-font-sans);
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   white-space: nowrap;
   position: relative;
-  transition: background .15s, border-color .15s;
+  transition: background .15s, border-color .15s, transform .12s;
 }
-.fv-btn:hover  { background: var(--fv-bg-hover); border-color: var(--fv-border); }
+.fv-btn:hover  { background: var(--fv-bg-hover); border-color: var(--fv-border); transform: scale(1.04); }
 .fv-btn.active { background: var(--fv-bg-hover); border-color: var(--fv-border); }
 .fv-btn svg    { width: 16px; height: 16px; }
 
@@ -197,6 +213,17 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-search-nav[data-tip]:hover::after {
   opacity: 1;
   transition-delay: .2s; /* 200ms delay before showing */
+}
+
+/* Wide tooltip variant: anchor to right edge instead of center, allow wrap */
+.fv-btn.fv-tip-wide[data-tip]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+  white-space: normal;
+  width: 240px;
+  text-align: left;
+  line-height: 1.45;
 }
 
 .fv-divider {
@@ -284,21 +311,6 @@ body.fv-size-large  { --fv-font-size: 22px; }
   max-width: 100%;
   overflow-x: auto;
 }
-
-/* ── JSON Code Block ────────────────────────────────────────── */
-.fv-json-code {
-  font-family: 'Consolas', 'Cascadia Code', 'Menlo', monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre;
-  word-break: normal;
-  overflow-x: auto;
-  color: var(--fv-text);
-  margin: 0;
-}
-
-/* ── JSON Tree (legacy, kept for reference) ─────────────────── */
-.fv-json-root { font-size: var(--fv-font-size); }
 
 .fv-node { position: relative; }
 
@@ -593,3 +605,545 @@ body.fv-size-large  { --fv-font-size: 22px; }
   font-size: var(--fv-font-size);
   color: var(--fv-text);
 }
+
+/* ── Playground ─────────────────────────────────────────────── */
+body.fv-playground-body { overflow: hidden; }
+
+@keyframes fv-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fv-pg-fade { animation: fv-fade-in .18s ease-out; }
+
+@keyframes fv-pulse {
+  0%, 100% { opacity: .9; }
+  50%      { opacity: .5; }
+}
+.fv-pg-error-icon { animation: fv-pulse 2s ease-in-out infinite; }
+
+@keyframes fv-spin {
+  to { transform: rotate(360deg); }
+}
+.fv-pg-spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--fv-border);
+  border-top-color: var(--fv-focus);
+  border-radius: 50%;
+  animation: fv-spin .6s linear infinite;
+}
+
+/* Current-line highlight behind textareas */
+.fv-pg-line-hl {
+  color: transparent;
+}
+.fv-pg-line-hl-active {
+  background: color-mix(in srgb, var(--fv-focus) 8%, transparent);
+  border-radius: 2px;
+}
+[data-fv-theme="github-dark"] .fv-pg-line-hl-active {
+  background: color-mix(in srgb, #58a6ff 12%, transparent);
+}
+
+.fv-pg-chips {
+  position: fixed;
+  top: var(--fv-toolbar-h);
+  left: 0; right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--fv-bg);
+  border-bottom: 2px solid;
+  border-image: linear-gradient(90deg, #0550ae 0%, #58a6ff 100%) 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  z-index: 100;
+}
+
+.fv-pg-chip {
+  padding: 6px 16px;
+  border: 1px solid var(--fv-border);
+  border-radius: 18px;
+  background: var(--fv-bg-toolbar);
+  color: var(--fv-text);
+  font-family: var(--fv-font-sans);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, transform .12s, box-shadow .12s;
+}
+.fv-pg-chip:hover {
+  background: var(--fv-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,.06);
+}
+.fv-pg-chip.active {
+  background: var(--fv-badge-bg);
+  border-color: var(--fv-focus);
+  color: var(--fv-badge-text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(9,105,218,.12);
+}
+
+.fv-pg-textbtn {
+  padding: 6px 16px;
+  height: auto;
+  width: auto;
+  font-family: var(--fv-font-sans);
+  font-size: 14px;
+}
+
+.fv-pg-split {
+  position: fixed;
+  top: calc(var(--fv-toolbar-h) + 46px);
+  left: 0; right: 0; bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--fv-border);
+}
+
+/* Each side is a column: optional header + scrollable body */
+.fv-pg-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--fv-bg);
+  overflow: hidden;
+}
+.fv-pg-pane-header {
+  flex-shrink: 0;
+  height: 42px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(180deg, #f0f6fc 0%, #e8f0f8 100%);
+  border-bottom: 1px solid var(--fv-border);
+  font-family: var(--fv-font-sans);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fv-text);
+  letter-spacing: .06em;
+}
+
+.fv-pg-input {
+  flex: 1;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: var(--fv-font-mono);
+  font-size: var(--fv-font-size);
+  line-height: var(--fv-line-height);
+  color: var(--fv-text);
+  background: color-mix(in srgb, var(--fv-bg-toolbar) 35%, var(--fv-bg));
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.04);
+}
+.fv-pg-input:focus {
+  background: var(--fv-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fv-focus) 25%, transparent);
+}
+
+.fv-pg-output {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--fv-bg-toolbar) 25%, var(--fv-bg));
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.04);
+  font-family: var(--fv-font-mono);
+  font-size: var(--fv-font-size);
+  line-height: 1.6;
+  color: var(--fv-text);
+}
+
+/* Decoder section (used by base64/url) */
+.fv-pg-decoder { display: flex; flex-direction: column; gap: 14px; }
+
+.fv-pg-section {
+  border: 1px solid var(--fv-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.fv-pg-sec-title {
+  padding: 6px 10px;
+  background: var(--fv-bg-toolbar);
+  font-family: var(--fv-font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fv-text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border-bottom: 1px solid var(--fv-border);
+}
+.fv-pg-sec-body {
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--fv-font-mono);
+  font-size: var(--fv-font-size);
+  color: var(--fv-text);
+  margin: 0;
+}
+.fv-pg-sec-json { color: var(--fv-text); }
+
+.fv-pg-kvtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.fv-pg-kvtable th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--fv-key);
+  background: var(--fv-bg-toolbar);
+  white-space: nowrap;
+}
+.fv-pg-kvtable td { word-break: break-all; }
+
+.fv-pg-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 240px;
+  padding: 40px 24px;
+  color: var(--fv-text-muted);
+  background: transparent;
+  font-family: var(--fv-font-sans);
+  text-align: center;
+}
+.fv-pg-error-icon {
+  font-size: 48px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--fv-log-warn) 80%, var(--fv-text-muted));
+  opacity: .9;
+}
+.fv-pg-error-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fv-text);
+}
+.fv-pg-error-detail {
+  font-family: var(--fv-font-mono);
+  font-size: 13px;
+  color: var(--fv-text-muted);
+  max-width: 480px;
+  word-break: break-all;
+}
+
+/* Sub-chips live in the output pane header now */
+.fv-pg-subchips {
+  display: flex;
+  gap: 6px;
+}
+.fv-pg-subchip {
+  padding: 4px 14px;
+  border: 1px solid var(--fv-border);
+  border-radius: 14px;
+  background: var(--fv-bg);
+  color: var(--fv-text);
+  font-family: var(--fv-font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.fv-pg-subchip:hover { background: var(--fv-bg-hover); }
+.fv-pg-subchip.active {
+  background: var(--fv-badge-bg);
+  border-color: var(--fv-focus);
+  color: var(--fv-badge-text);
+  font-weight: 600;
+}
+.fv-pg-subchips-body, .fv-pg-json-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* JSON textbox: keep tree-view's "flowing text" feel, no code-block chrome */
+.fv-pg-json-text {
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  line-height: var(--fv-line-height);
+}
+
+/* ── Numbered output (playground): gutter on the left, content on the right.
+ * Lives inside `.fv-pg-output` which provides the actual scroll container. */
+.fv-pg-numbered {
+  display: flex;
+  align-items: stretch;
+  min-height: 100%;
+  isolation: isolate;
+  font-family: var(--fv-font-mono);
+  font-size: var(--fv-font-size);
+  line-height: var(--fv-line-height);
+}
+.fv-pg-gutter {
+  position: sticky;
+  left: 0;
+  top: auto;
+  z-index: 1;
+  flex-shrink: 0;
+  min-width: 44px;
+  padding: 0 8px 0 4px;
+  text-align: right;
+  color: var(--fv-text-muted);
+  background: var(--fv-bg);
+  border-right: 1px solid var(--fv-border);
+  user-select: none;
+  overflow: hidden;
+  font-family: var(--fv-font-mono);
+  font-size: var(--fv-font-size);
+  line-height: var(--fv-line-height);
+}
+.fv-pg-gutter-ln {
+  line-height: inherit;
+  min-height: 1em;
+}
+.fv-pg-content {
+  flex: 1;
+  min-width: 0;
+  padding-left: 12px;
+}
+.fv-pg-content > pre {
+  margin: 0;
+}
+
+/* In the playground, hide the "N keys / N items" badge that the standalone
+ * JSON viewer shows next to brackets. The line-number gutter + collapse arrow
+ * give enough information on their own. */
+.fv-playground-body .fv-length { display: none; }
+
+.fv-pg-content .fv-sql-root {
+  /* Keep lines as-is so the gutter stays aligned. Let the overflow propagate
+   * up to .fv-pg-output so the scrollbar is pinned to the viewport bottom. */
+  white-space: pre;
+}
+
+/* ── Diff mode v2 (IDEA-style side-by-side) ─────────────────── */
+.fv-diff-shell-v2 {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--fv-bg);
+}
+.fv-diff-shell-v2 .fv-diff-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--fv-border);
+  background: var(--fv-bg-toolbar);
+  flex-shrink: 0;
+}
+.fv-diff-shell-v2 .fv-diff-stats {
+  margin-left: auto;
+  font-family: var(--fv-font-mono);
+  font-size: 12px;
+  color: var(--fv-text-muted);
+}
+.fv-diff-shell-v2 .fv-diff-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 32px 1fr;
+  gap: 0;
+  min-height: 0;
+  position: relative;
+}
+.fv-diff-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--fv-bg);
+}
+.fv-diff-side-title {
+  flex-shrink: 0;
+  height: 42px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  font-family: var(--fv-font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fv-text);
+  background: var(--fv-bg-toolbar);
+  border-bottom: 1px solid var(--fv-border);
+  letter-spacing: .04em;
+}
+.fv-diff-side-left  { border-right: 1px solid var(--fv-border); }
+.fv-diff-side-right { border-left:  1px solid var(--fv-border); }
+
+.fv-diff-scrollwrap {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  min-height: 0;
+  position: relative;
+}
+/* Diff editor/gutter/bg share the SAME `font-size` and `line-height` so every
+ * row has the same pixel height across all three layers. When the font-size
+ * button is toggled, all three scale together. */
+.fv-diff-gutter,
+.fv-diff-bg,
+.fv-diff-editor {
+  font-family: var(--fv-font-mono);
+  font-size:   var(--fv-font-size);
+  line-height: var(--fv-line-height);
+}
+
+.fv-diff-scrollwrap {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  min-height: 0;
+  position: relative;
+}
+
+.fv-diff-gutter {
+  background: var(--fv-bg-toolbar);
+  border-right: 1px solid var(--fv-border);
+  color: var(--fv-text-muted);
+  text-align: right;
+  padding: 8px 6px 0 0;
+  overflow: hidden;
+  user-select: none;
+  position: relative;
+}
+.fv-diff-gutter-inner { will-change: transform; }
+.fv-diff-ln {
+  opacity: .55;
+}
+
+.fv-diff-textwrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.fv-diff-bg {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  pointer-events: none;
+  padding: 8px 12px 0 12px;
+  will-change: transform;
+  color: transparent;        /* the textarea on top shows the real text */
+  white-space: pre;
+}
+.fv-diff-bg-row { }
+.fv-diff-bg-row.op-equal  { background: transparent; }
+.fv-diff-bg-row.op-delete { background: color-mix(in srgb, #ef4444 14%, var(--fv-bg)); }
+.fv-diff-bg-row.op-insert { background: color-mix(in srgb, #22c55e 14%, var(--fv-bg)); }
+.fv-diff-bg-row.op-change { background: color-mix(in srgb, #eab308 12%, var(--fv-bg)); }
+.fv-diff-word-del { background: color-mix(in srgb, #ef4444 40%, var(--fv-bg)); }
+.fv-diff-word-ins { background: color-mix(in srgb, #22c55e 40%, var(--fv-bg)); }
+
+.fv-diff-editor {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100%; height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 8px 12px;
+  color: var(--fv-text);
+  background: transparent;
+  white-space: pre;
+  overflow: auto;
+}
+
+.fv-diff-center {
+  position: relative;
+  background: var(--fv-border);
+  overflow: hidden;
+}
+.fv-diff-center-inner {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  will-change: transform;
+}
+.fv-diff-hunk-actions {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fv-diff-accept {
+  width: 24px; height: 18px;
+  border: 1px solid var(--fv-border);
+  background: var(--fv-bg);
+  color: var(--fv-text);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  box-shadow: var(--fv-shadow);
+}
+.fv-diff-accept:hover {
+  background: var(--fv-badge-bg);
+  border-color: var(--fv-focus);
+  color: var(--fv-focus);
+}
+
+/* Outer wrapper for the diff view — sized like .fv-pg-split so toggling
+ * between normal mode and diff mode is just hide/show. */
+.fv-pg-diff-shell {
+  position: fixed;
+  top: calc(var(--fv-toolbar-h) + 46px);
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--fv-bg);
+}
+
+/* ── QR code mode ───────────────────────────────────────────── */
+.fv-pg-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 0;
+}
+.fv-pg-qr {
+  display: grid;
+  background: #fff;
+}
+.fv-pg-qr-meta {
+  font-family: var(--fv-font-sans);
+  font-size: 12px;
+  color: var(--fv-text-muted);
+}
+
+.fv-pg-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  background: linear-gradient(180deg, #0b6bcb 0%, #0550ae 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--fv-font-sans);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .12s, filter .12s;
+  box-shadow: 0 2px 6px rgba(5, 80, 174, .35), 0 0 0 1px rgba(5, 80, 174, .25);
+}
+.fv-pg-primary-btn:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 4px 12px rgba(5, 80, 174, .45), 0 0 0 1px rgba(5, 80, 174, .35);
+  transform: translateY(-1px);
+}
+.fv-pg-primary-btn:active { transform: translateY(0); }
+.fv-pg-primary-btn svg { display: block; width: 16px; height: 16px; }
