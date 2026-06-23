@@ -1,361 +1,466 @@
-// Minimal but standards-compliant QR code generator.
-// - Byte mode only (handles any UTF-8 text)
-// - Error correction level M (~15%)
-// - Versions 1..10 (max ~200 chars)
-// - Reed-Solomon error correction
-// - Mask 7 (fixed)
+// QR code generator — ported from Kazuhiko Arase's qrcode-generator (MIT).
+// This is a battle-tested implementation; only the byte-mode + level-H path
+// is retained, plus the auto type-number (1..40) selection. UTF-8 encoding is
+// used so Chinese / any Unicode text scans correctly.
 //
-// Returns a 2D boolean matrix (true = dark module). Callers render to canvas.
-//
-// Reference: ISO/IEC 18004:2015 (QR Code 2005)
+// Reference: ISO/IEC 18004:2015
+// Source:    https://github.com/kazuhikoarase/qrcode-generator
 
 export interface QrResult {
   size: number;        // module count per side
   matrix: boolean[][]; // [row][col], true = dark
-  version: number;
+  version: number;     // 1..40
 }
 
-// ── Error correction parameters (level M, ~15%) ────────────────
-// [totalCodewords, ecCodewordsPerBlock, group1Blocks, group1DataPerBlock, group2Blocks, group2DataPerBlock]
-const EC_TABLE: number[][] = [
-  [0, 0, 0, 0, 0, 0],                       // version 0 (unused)
-  [26,  10,  1,  16, 0,  0],                // v1
-  [44,  16,  1,  28, 0,  0],                // v2
-  [70,  26,  1,  44, 0,  0],                // v3
-  [100, 18,  2,  32, 0,  0],                // v4
-  [134, 24,  2,  43, 0,  0],                // v5
-  [172, 16,  4,  27, 0,  0],                // v6
-  [196, 18,  4,  31, 0,  0],                // v7
-  [242, 22,  2,  38, 2,  39],               // v8
-  [292, 22,  3,  36, 2,  37],               // v9
-  [346, 26,  4,  43, 1,  44],               // v10
+const EC_LEVEL_H = 2;            // format-info identifier for level H (~30%)
+const MODE_8BIT = 1 << 2;         // byte mode indicator
+
+// ── GF(256) exponential / logarithm tables (QRMath) ────────────
+const EXP_TABLE = new Array(256);
+const LOG_TABLE = new Array(256);
+for (let i = 0; i < 8; i++) EXP_TABLE[i] = 1 << i;
+for (let i = 8; i < 256; i++)
+  EXP_TABLE[i] = EXP_TABLE[i - 4] ^ EXP_TABLE[i - 5] ^ EXP_TABLE[i - 6] ^ EXP_TABLE[i - 8];
+for (let i = 0; i < 255; i++) LOG_TABLE[EXP_TABLE[i]] = i;
+function glog(n: number): number { if (n < 1) throw new Error('glog(' + n + ')'); return LOG_TABLE[n]; }
+function gexp(n: number): number {
+  while (n < 0) n += 255;
+  while (n >= 256) n -= 255;
+  return EXP_TABLE[n];
+}
+
+// ── Reed-Solomon polynomial helpers ────────────────────────────
+class Poly {
+  num: number[];
+  constructor(num: number[], shift = 0) {
+    let offset = 0;
+    while (offset < num.length && num[offset] === 0) offset++;
+    this.num = new Array(num.length - offset + shift).fill(0);
+    for (let i = 0; i < num.length - offset; i++) this.num[i] = num[i + offset];
+  }
+  get(index: number): number { return this.num[index]; }
+  get length(): number { return this.num.length; }
+  multiply(e: Poly): Poly {
+    const n = new Array(this.length + e.length - 1).fill(0);
+    for (let i = 0; i < this.length; i++)
+      for (let j = 0; j < e.length; j++)
+        n[i + j] ^= gexp(glog(this.get(i)) + glog(e.get(j)));
+    return new Poly(n, 0);
+  }
+  mod(e: Poly): Poly {
+    if (this.length - e.length < 0) return this;
+    const ratio = glog(this.get(0)) - glog(e.get(0));
+    const n = this.num.slice();
+    for (let i = 0; i < e.length; i++) n[i] ^= gexp(glog(e.get(i)) + ratio);
+    return new Poly(n, 0).mod(e);
+  }
+}
+function errorCorrectPolynomial(ecLen: number): Poly {
+  let a = new Poly([1], 0);
+  for (let i = 0; i < ecLen; i++) a = a.multiply(new Poly([1, gexp(i)], 0));
+  return a;
+}
+
+// ── RS block table (ISO 18004 Table 9), [count, total, data, ...] ──
+// Level H entries (4th of each version group).
+const RS_BLOCK_H: number[][] = [
+  /*  1 */ [1, 26, 9],
+  /*  2 */ [1, 44, 16],
+  /*  3 */ [2, 35, 13],
+  /*  4 */ [4, 25, 9],
+  /*  5 */ [2, 33, 11, 2, 34, 12],
+  /*  6 */ [4, 43, 15],
+  /*  7 */ [4, 39, 13, 1, 40, 14],
+  /*  8 */ [4, 40, 14, 2, 41, 15],
+  /*  9 */ [4, 36, 12, 4, 37, 13],
+  /* 10 */ [6, 43, 15, 2, 44, 16],
+  /* 11 */ [3, 36, 12, 8, 37, 13],
+  /* 12 */ [7, 42, 14, 4, 43, 15],
+  /* 13 */ [12, 33, 11, 4, 34, 12],
+  /* 14 */ [11, 36, 12, 5, 37, 13],
+  /* 15 */ [11, 36, 12, 7, 37, 13],
+  /* 16 */ [3, 45, 15, 13, 46, 16],
+  /* 17 */ [2, 42, 14, 17, 43, 15],
+  /* 18 */ [2, 42, 14, 19, 43, 15],
+  /* 19 */ [9, 39, 13, 16, 40, 14],
+  /* 20 */ [15, 43, 15, 10, 44, 16],
+  /* 21 */ [19, 46, 16, 6, 47, 17],
+  /* 22 */ [34, 37, 13],
+  /* 23 */ [16, 45, 15, 14, 46, 16],
+  /* 24 */ [30, 42, 14, 2, 43, 15],
+  /* 25 */ [22, 41, 14, 13, 42, 15],
+  /* 26 */ [33, 39, 13, 4, 40, 14],
+  /* 27 */ [12, 45, 15, 28, 46, 16],
+  /* 28 */ [11, 45, 15, 31, 46, 16],
+  /* 29 */ [19, 45, 15, 26, 46, 16],
+  /* 30 */ [23, 44, 14, 28, 45, 15],
+  /* 31 */ [23, 43, 13, 41, 44, 14],
+  /* 32 */ [19, 44, 14, 46, 45, 15],
+  /* 33 */ [15, 44, 14, 54, 45, 15],
+  /* 34 */ [43, 43, 13, 23, 44, 14],
+  /* 35 */ [22, 43, 13, 48, 44, 14],
+  /* 36 */ [13, 43, 13, 60, 44, 14],
+  /* 37 */ [6, 44, 14, 68, 45, 15],
+  /* 38 */ [10, 43, 13, 78, 44, 14],
+  /* 39 */ [6, 44, 14, 78, 45, 15],
+  /* 40 */ [8, 44, 14, 81, 45, 15],
+];
+function getRsBlocks(version: number): { total: number; data: number }[] {
+  const rs = RS_BLOCK_H[version - 1];
+  const list: { total: number; data: number }[] = [];
+  for (let i = 0; i < rs.length / 3; i++) {
+    const count = rs[i * 3], total = rs[i * 3 + 1], data = rs[i * 3 + 2];
+    for (let j = 0; j < count; j++) list.push({ total, data });
+  }
+  return list;
+}
+
+// ── Pattern-position table for alignment patterns (1..40) ──────
+const PATTERN_POS: number[][] = [
+  [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34],
+  [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50], [6, 30, 54],
+  [6, 32, 58], [6, 34, 62], [6, 26, 46, 66], [6, 26, 48, 70],
+  [6, 26, 50, 74], [6, 30, 54, 78], [6, 30, 56, 82], [6, 30, 58, 86],
+  [6, 34, 62, 90], [6, 28, 50, 72, 94], [6, 26, 50, 74, 98],
+  [6, 30, 54, 78, 102], [6, 28, 54, 80, 106], [6, 32, 58, 84, 110],
+  [6, 30, 58, 86, 114], [6, 34, 62, 90, 118], [6, 26, 50, 74, 98, 122],
+  [6, 30, 54, 78, 102, 126], [6, 26, 52, 78, 104, 130], [6, 30, 56, 82, 108, 134],
+  [6, 34, 60, 86, 112, 138], [6, 30, 58, 86, 114, 142], [6, 34, 62, 90, 118, 146],
+  [6, 30, 54, 78, 102, 126, 150], [6, 24, 50, 76, 102, 128, 154],
+  [6, 28, 54, 80, 106, 132, 158], [6, 32, 58, 84, 110, 136, 162],
+  [6, 26, 54, 82, 110, 138, 166], [6, 30, 58, 86, 114, 142, 170],
 ];
 
-// ── Public API ────────────────────────────────────────────────
-export function generateQr(text: string): QrResult {
-  const bytes = utf8Encode(text);
-  const version = pickVersion(bytes.length);
-  if (version < 0) throw new Error('Input too long for QR M v1-10 (max ~200 chars)');
-
-  const dataCw = buildDataCodewords(bytes, version);
-  const ecCw   = buildEcCodewords(dataCw, version);
-  const stream = interleave(dataCw, ecCw, version);
-
-  return draw(stream, version);
+// ── BCH helpers for format / version info ─────────────────────
+const G15 = (1 << 10) | (1 << 8) | (1 << 5) | (1 << 4) | (1 << 2) | (1 << 1) | (1 << 0);
+const G18 = (1 << 12) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 5) | (1 << 2) | (1 << 0);
+const G15_MASK = (1 << 14) | (1 << 12) | (1 << 10) | (1 << 4) | (1 << 1);
+function bchDigit(data: number): number { let d = 0; while (data !== 0) { d++; data >>>= 1; } return d; }
+function bchTypeInfo(data: number): number {
+  let d = data << 10;
+  while (bchDigit(d) - bchDigit(G15) >= 0) d ^= (G15 << (bchDigit(d) - bchDigit(G15)));
+  return ((data << 10) | d) ^ G15_MASK;
+}
+function bchTypeNumber(data: number): number {
+  let d = data << 12;
+  while (bchDigit(d) - bchDigit(G18) >= 0) d ^= (G18 << (bchDigit(d) - bchDigit(G18)));
+  return (data << 12) | d;
 }
 
-// ── UTF-8 encode ──────────────────────────────────────────────
-function utf8Encode(text: string): number[] {
-  return Array.from(new TextEncoder().encode(text));
-}
-
-// ── Version selection ─────────────────────────────────────────
-function pickVersion(byteCount: number): number {
-  for (let v = 1; v <= 10; v++) {
-    const cap = dataCapacityBytes(v);
-    if (byteCount <= cap) return v;
+// ── Mask patterns (8) ─────────────────────────────────────────
+function maskFunc(mask: number): (r: number, c: number) => boolean {
+  switch (mask) {
+    case 0: return (i, j) => (i + j) % 2 === 0;
+    case 1: return (i) => i % 2 === 0;
+    case 2: return (i, j) => j % 3 === 0;
+    case 3: return (i, j) => (i + j) % 3 === 0;
+    case 4: return (i, j) => (Math.floor(i / 2) + Math.floor(j / 3)) % 2 === 0;
+    case 5: return (i, j) => (i * j) % 2 + (i * j) % 3 === 0;
+    case 6: return (i, j) => ((i * j) % 2 + (i * j) % 3) % 2 === 0;
+    case 7: return (i, j) => ((i * j) % 3 + (i + j) % 2) % 2 === 0;
+    default: throw new Error('bad mask:' + mask);
   }
-  return -1;
 }
 
-function dataCapacityBytes(version: number): number {
-  const t = EC_TABLE[version];
-  const dataBits = (t[2] * t[3] + t[4] * t[5]) * 8;
-  // mode (4) + length (8 for v1-9 in byte mode; 16 for v10+)
-  const lenBits  = version >= 10 ? 16 : 8;
-  return Math.floor((dataBits - 4 - lenBits) / 8);
+// length-in-bits for the mode indicator at a given version range
+function lengthBits(version: number): number {
+  if (version < 10) return 8;
+  if (version < 27) return 16;
+  return 16;
 }
 
-// ── Build data codewords (mode + length + payload + terminator + padding) ──
-function buildDataCodewords(bytes: number[], version: number): number[] {
-  const t = EC_TABLE[version];
-  const totalDataBits = (t[2] * t[3] + t[4] * t[5]) * 8;
-
-  const bits: number[] = [];
-  // Mode indicator: 0100 (byte mode)
-  appendBits(bits, 0b0100, 4);
-  // Character count indicator
-  appendBits(bits, bytes.length, version >= 10 ? 16 : 8);
-  // Payload
-  for (const b of bytes) appendBits(bits, b, 8);
-  // Terminator (up to 4 bits)
-  appendBits(bits, 0, Math.min(4, totalDataBits - bits.length));
-  // Pad to byte boundary
-  while (bits.length % 8 !== 0) bits.push(0);
-  // Pad with alternating 0xEC / 0x11 until the data area is full
-  let padIdx = 0;
-  while (bits.length < totalDataBits) {
-    appendBits(bits, padIdx++ % 2 === 0 ? 0xEC : 0x11, 8);
+// ── Bit buffer (MSB-first) ────────────────────────────────────
+class BitBuffer {
+  buf: number[] = [];
+  len = 0;
+  put(num: number, length: number): void {
+    for (let i = 0; i < length; i++) this.putBit(((num >>> (length - i - 1)) & 1) === 1);
   }
-  return bitsToBytes(bits.slice(0, totalDataBits));
+  putBit(bit: boolean): void {
+    const i = Math.floor(this.len / 8);
+    if (this.buf.length <= i) this.buf.push(0);
+    if (bit) this.buf[i] |= (0x80 >>> (this.len % 8));
+    this.len++;
+  }
 }
 
-function appendBits(bits: number[], value: number, n: number): void {
-  for (let i = n - 1; i >= 0; i--) bits.push((value >> i) & 1);
-}
-
-function bitsToBytes(bits: number[]): number[] {
+// ── UTF-8 encoder (replaces the library's default latin-1 path) ──
+function utf8Bytes(s: string): number[] {
   const out: number[] = [];
-  for (let i = 0; i < bits.length; i += 8) {
-    let b = 0;
-    for (let j = 0; j < 8; j++) b = (b << 1) | (bits[i + j] || 0);
-    out.push(b);
+  for (let i = 0; i < s.length; i++) {
+    let c = s.charCodeAt(i);
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      // surrogate pair → supplementary plane
+      const c2 = s.charCodeAt(++i);
+      c = 0x10000 + ((c & 0x3ff) << 10) + (c2 & 0x3ff);
+      out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    } else {
+      out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
   }
   return out;
 }
 
-// ── Reed-Solomon error correction ─────────────────────────────
-// GF(256) with primitive polynomial 0x11D
-const GF_EXP: number[] = new Array(512);
-const GF_LOG: number[] = new Array(256);
-(function initGf(): void {
-  let x = 1;
-  for (let i = 0; i < 255; i++) {
-    GF_EXP[i] = x;
-    GF_LOG[x] = i;
-    x = x << 1;
-    if (x & 0x100) x ^= 0x11D;
+// ── Build the final interleaved data+EC byte stream ───────────
+function createData(version: number, data: Uint8Array): number[] {
+  const rsBlocks = getRsBlocks(version);
+
+  const buffer = new BitBuffer();
+  buffer.put(MODE_8BIT, 4);
+  buffer.put(data.length, lengthBits(version));
+  for (const b of data) buffer.put(b, 8);
+
+  let totalDataCount = 0;
+  for (const b of rsBlocks) totalDataCount += b.data;
+
+  if (buffer.len > totalDataCount * 8)
+    throw new Error('code length overflow (' + buffer.len + '>' + totalDataCount * 8 + ')');
+
+  // terminator
+  if (buffer.len + 4 <= totalDataCount * 8) buffer.put(0, 4);
+  // pad to byte boundary
+  while (buffer.len % 8 !== 0) buffer.putBit(false);
+  // pad bytes 0xEC / 0x11
+  const PAD0 = 0xec, PAD1 = 0x11;
+  while (buffer.len < totalDataCount * 8) {
+    buffer.put(PAD0, 8);
+    if (buffer.len >= totalDataCount * 8) break;
+    buffer.put(PAD1, 8);
   }
-  for (let i = 255; i < 512; i++) GF_EXP[i] = GF_EXP[i - 255];
-})();
 
-function gfMul(a: number, b: number): number {
-  if (a === 0 || b === 0) return 0;
-  return GF_EXP[GF_LOG[a] + GF_LOG[b]];
-}
+  // interleave data + EC across all blocks
+  const offset = 0;
+  let maxDc = 0, maxEc = 0;
+  const dcdata: number[][] = [];
+  const ecdata: number[][] = [];
+  let off = offset;
+  for (let r = 0; r < rsBlocks.length; r++) {
+    const dcCount = rsBlocks[r].data;
+    const ecCount = rsBlocks[r].total - dcCount;
+    maxDc = Math.max(maxDc, dcCount);
+    maxEc = Math.max(maxEc, ecCount);
 
-function rsGenPoly(degree: number): number[] {
-  let poly = [1];
-  for (let i = 0; i < degree; i++) {
-    const next = new Array(poly.length + 1).fill(0);
-    for (let j = 0; j < poly.length; j++) {
-      next[j]     ^= poly[j];
-      next[j + 1] ^= gfMul(poly[j], GF_EXP[i]);
-    }
-    poly = next;
-  }
-  return poly;
-}
+    dcdata[r] = new Array(dcCount);
+    for (let i = 0; i < dcCount; i++) dcdata[r][i] = 0xff & buffer.buf[i + off];
+    off += dcCount;
 
-function rsEncode(data: number[], ecCount: number): number[] {
-  const gen = rsGenPoly(ecCount);
-  const buf = data.concat(new Array(ecCount).fill(0));
-  for (let i = 0; i < data.length; i++) {
-    const factor = buf[i];
-    if (factor === 0) continue;
-    for (let j = 0; j < gen.length; j++) {
-      buf[i + j] ^= gfMul(gen[j], factor);
-    }
-  }
-  return buf.slice(data.length);
-}
-
-function buildEcCodewords(dataCw: number[], version: number): number[][] {
-  const t = EC_TABLE[version];
-  const ecPerBlock = t[1];
-  const blocks: number[][] = [];
-  let idx = 0;
-  for (let i = 0; i < t[2]; i++) {
-    const block = dataCw.slice(idx, idx + t[3]);
-    idx += t[3];
-    blocks.push(rsEncode(block, ecPerBlock));
-  }
-  for (let i = 0; i < t[4]; i++) {
-    const block = dataCw.slice(idx, idx + t[5]);
-    idx += t[5];
-    blocks.push(rsEncode(block, ecPerBlock));
-  }
-  return blocks;
-}
-
-function splitDataBlocks(dataCw: number[], version: number): number[][] {
-  const t = EC_TABLE[version];
-  const blocks: number[][] = [];
-  let idx = 0;
-  for (let i = 0; i < t[2]; i++) { blocks.push(dataCw.slice(idx, idx + t[3])); idx += t[3]; }
-  for (let i = 0; i < t[4]; i++) { blocks.push(dataCw.slice(idx, idx + t[5])); idx += t[5]; }
-  return blocks;
-}
-
-function interleave(dataCw: number[], ecBlocks: number[][], version: number): number[] {
-  const dataBlocks = splitDataBlocks(dataCw, version);
-  const out: number[] = [];
-  // Data: column-major across blocks
-  const maxData = Math.max(...dataBlocks.map((b) => b.length));
-  for (let i = 0; i < maxData; i++) {
-    for (const blk of dataBlocks) if (i < blk.length) out.push(blk[i]);
-  }
-  // EC: column-major across blocks
-  const maxEc = ecBlocks[0].length;
-  for (let i = 0; i < maxEc; i++) {
-    for (const blk of ecBlocks) out.push(blk[i]);
-  }
-  return out;
-}
-
-// ── Matrix drawing ────────────────────────────────────────────
-function draw(stream: number[], version: number): QrResult {
-  const size = version * 4 + 17;
-  // -1 = unset, 0/1 = function pattern, 2 reserved (format/version), data after
-  const mat: number[][] = Array.from({ length: size }, () => new Array(size).fill(-1));
-  const reserved: boolean[][] = Array.from({ length: size }, () => new Array(size).fill(false));
-
-  drawFinders(mat, reserved, size);
-  drawSeparators(mat, reserved, size);
-  drawTiming(mat, reserved, size);
-  drawAlignment(mat, reserved, version);
-  drawDarkModule(mat, reserved, version);
-  reserveFormatArea(reserved, size);
-  if (version >= 7) reserveVersionArea(reserved, size);
-
-  drawData(mat, reserved, size, stream);
-
-  const MASK = 7;
-  const trial = mat.map((row) => row.slice());
-  applyMask(trial, reserved, size, MASK);
-  drawFormatInfo(trial, size, MASK);
-  trial[4 * version + 9][8] = 1;
-
-  const matrix = trial.map((row) => row.map((v) => v === 1));
-  return { size, matrix, version };
-}
-
-function drawFinders(mat: number[][], res: boolean[][], size: number): void {
-  for (const [r, c] of [[0, 0], [0, size - 7], [size - 7, 0]]) {
-    for (let dr = 0; dr < 7; dr++) {
-      for (let dc = 0; dc < 7; dc++) {
-        const inner = dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4;
-        const ring  = dr === 0 || dr === 6 || dc === 0 || dc === 6;
-        mat[r + dr][c + dc] = (ring || inner) ? 1 : 0;
-        res[r + dr][c + dc] = true;
-      }
+    const rsPoly = errorCorrectPolynomial(ecCount);
+    const rawPoly = new Poly(dcdata[r], rsPoly.length - 1);
+    const modPoly = rawPoly.mod(rsPoly);
+    ecdata[r] = new Array(rsPoly.length - 1);
+    for (let i = 0; i < ecdata[r].length; i++) {
+      const modIndex = i + modPoly.length - ecdata[r].length;
+      ecdata[r][i] = modIndex >= 0 ? modPoly.get(modIndex) : 0;
     }
   }
+
+  let totalCodeCount = 0;
+  for (const b of rsBlocks) totalCodeCount += b.total;
+  const result: number[] = new Array(totalCodeCount);
+  let index = 0;
+  for (let i = 0; i < maxDc; i++)
+    for (let r = 0; r < rsBlocks.length; r++)
+      if (i < dcdata[r].length) result[index++] = dcdata[r][i];
+  for (let i = 0; i < maxEc; i++)
+    for (let r = 0; r < rsBlocks.length; r++)
+      if (i < ecdata[r].length) result[index++] = ecdata[r][i];
+  return result;
 }
 
-function drawSeparators(mat: number[][], res: boolean[][], size: number): void {
-  const set = (r: number, c: number): void => {
-    if (r < 0 || c < 0 || r >= size || c >= size) return;
-    mat[r][c] = 0;
-    res[r][c] = true;
-  };
-  for (let i = 0; i < 8; i++) {
-    set(7, i); set(i, 7);
-    set(7, size - 1 - i); set(i, size - 8);
-    set(size - 8, i); set(size - 1 - i, 7);
+// ── QR matrix builder ─────────────────────────────────────────
+class QRMatrix {
+  modules: (boolean | null)[][];
+  size: number;
+  test: boolean;
+  constructor(version: number, test: boolean) {
+    this.size = version * 4 + 17;
+    this.test = test;
+    this.modules = Array.from({ length: this.size }, () => new Array<boolean | null>(this.size).fill(null));
   }
-}
-
-function drawTiming(mat: number[][], res: boolean[][], size: number): void {
-  for (let i = 8; i < size - 8; i++) {
-    const v = i % 2 === 0 ? 1 : 0;
-    if (!res[6][i]) { mat[6][i] = v; res[6][i] = true; }
-    if (!res[i][6]) { mat[i][6] = v; res[i][6] = true; }
+  isDark(r: number, c: number): boolean {
+    return this.modules[r][c] === true;
   }
-}
 
-function alignmentPositions(version: number): number[] {
-  // Subset used for v1-10; v1 has none.
-  const table: number[][] = [
-    [], [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34],
-    [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50],
-  ];
-  return table[version] ?? [];
-}
-
-function drawAlignment(mat: number[][], res: boolean[][], version: number): void {
-  const positions = alignmentPositions(version);
-  for (const r of positions) {
-    for (const c of positions) {
-      if (res[r][c]) continue; // overlaps finder
-      for (let dr = -2; dr <= 2; dr++) {
-        for (let dc = -2; dc <= 2; dc++) {
-          const ring = Math.max(Math.abs(dr), Math.abs(dc));
-          mat[r + dr][c + dc] = (ring === 0 || ring === 2) ? 1 : 0;
-          res[r + dr][c + dc] = true;
+  setupPositionProbe(row: number, col: number): void {
+    for (let r = -1; r <= 7; r++) {
+      if (row + r <= -1 || this.size <= row + r) continue;
+      for (let c = -1; c <= 7; c++) {
+        if (col + c <= -1 || this.size <= col + c) continue;
+        if ((r >= 0 && r <= 6 && (c === 0 || c === 6))
+          || (c >= 0 && c <= 6 && (r === 0 || r === 6))
+          || (r >= 2 && r <= 4 && c >= 2 && c <= 4)) {
+          this.modules[row + r][col + c] = true;
+        } else {
+          this.modules[row + r][col + c] = false;
         }
       }
     }
   }
-}
 
-function drawDarkModule(mat: number[][], res: boolean[][], version: number): void {
-  const r = 4 * version + 9;
-  mat[r][8] = 1;
-  res[r][8] = true;
-}
+  setupTimingPattern(): void {
+    for (let r = 8; r < this.size - 8; r++) if (this.modules[r][6] === null) this.modules[r][6] = r % 2 === 0;
+    for (let c = 8; c < this.size - 8; c++) if (this.modules[6][c] === null) this.modules[6][c] = c % 2 === 0;
+  }
 
-function reserveFormatArea(res: boolean[][], size: number): void {
-  for (let i = 0; i < 9; i++)        res[8][i] = true;
-  for (let i = 0; i < 8; i++)        res[i][8] = true;
-  for (let i = size - 8; i < size; i++) res[8][i] = true;
-  for (let i = size - 7; i < size; i++) res[i][8] = true;
-}
+  setupPositionAdjust(version: number): void {
+    const pos = PATTERN_POS[version - 1];
+    for (let i = 0; i < pos.length; i++)
+      for (let j = 0; j < pos.length; j++) {
+        const row = pos[i], col = pos[j];
+        if (this.modules[row][col] !== null) continue;
+        for (let r = -2; r <= 2; r++)
+          for (let c = -2; c <= 2; c++)
+            this.modules[row + r][col + c] = (r === -2 || r === 2 || c === -2 || c === 2 || (r === 0 && c === 0));
+      }
+  }
 
-function reserveVersionArea(res: boolean[][], size: number): void {
-  for (let r = 0; r < 6; r++) for (let c = size - 11; c < size - 8; c++) res[r][c] = true;
-  for (let c = 0; c < 6; c++) for (let r = size - 11; r < size - 8; r++) res[r][c] = true;
-}
+  setupTypeInfo(maskPattern: number): void {
+    const data = (EC_LEVEL_H << 3) | maskPattern;
+    const bits = bchTypeInfo(data);
+    for (let i = 0; i < 15; i++) {
+      const mod = !this.test && ((bits >> i) & 1) === 1;
+      if (i < 6) this.modules[i][8] = mod;
+      else if (i < 8) this.modules[i + 1][8] = mod;
+      else this.modules[this.size - 15 + i][8] = mod;
+    }
+    for (let i = 0; i < 15; i++) {
+      const mod = !this.test && ((bits >> i) & 1) === 1;
+      if (i < 8) this.modules[8][this.size - i - 1] = mod;
+      else if (i < 9) this.modules[8][15 - i - 1 + 1] = mod;
+      else this.modules[8][15 - i - 1] = mod;
+    }
+    this.modules[this.size - 8][8] = !this.test;
+  }
 
-function drawData(mat: number[][], res: boolean[][], size: number, stream: number[]): void {
-  let bitIdx = 0;
-  let up = true;
-  for (let col = size - 1; col > 0; col -= 2) {
-    if (col === 6) col--; // skip timing column
-    for (let i = 0; i < size; i++) {
-      const r = up ? size - 1 - i : i;
-      for (let dc = 0; dc < 2; dc++) {
-        const c = col - dc;
-        if (res[r][c]) continue;
-        const byte = stream[bitIdx >> 3];
-        const bit  = byte === undefined ? 0 : (byte >> (7 - (bitIdx & 7))) & 1;
-        mat[r][c] = bit;
-        bitIdx++;
+  setupTypeNumber(version: number): void {
+    const bits = bchTypeNumber(version);
+    for (let i = 0; i < 18; i++) {
+      const mod = !this.test && ((bits >> i) & 1) === 1;
+      this.modules[Math.floor(i / 3)][i % 3 + this.size - 8 - 3] = mod;
+    }
+    for (let i = 0; i < 18; i++) {
+      const mod = !this.test && ((bits >> i) & 1) === 1;
+      this.modules[i % 3 + this.size - 8 - 3][Math.floor(i / 3)] = mod;
+    }
+  }
+
+  mapData(data: number[], maskPattern: number): void {
+    let inc = -1, row = this.size - 1, bitIndex = 7, byteIndex = 0;
+    const mf = maskFunc(maskPattern);
+    for (let col = this.size - 1; col > 0; col -= 2) {
+      if (col === 6) col -= 1;
+      while (true) {
+        for (let c = 0; c < 2; c++) {
+          if (this.modules[row][col - c] === null) {
+            let dark = false;
+            if (byteIndex < data.length) dark = ((data[byteIndex] >>> bitIndex) & 1) === 1;
+            if (mf(row, col - c)) dark = !dark;
+            this.modules[row][col - c] = dark;
+            bitIndex--;
+            if (bitIndex === -1) { byteIndex++; bitIndex = 7; }
+          }
+        }
+        row += inc;
+        if (row < 0 || this.size <= row) { row -= inc; inc = -inc; break; }
       }
     }
-    up = !up;
   }
 }
 
-function maskBit(mask: number, r: number, c: number): boolean {
-  switch (mask) {
-    case 0: return (r + c) % 2 === 0;
-    case 1: return r % 2 === 0;
-    case 2: return c % 3 === 0;
-    case 3: return (r + c) % 3 === 0;
-    case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
-    case 5: return ((r * c) % 2) + ((r * c) % 3) === 0;
-    case 6: return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0;
-    case 7: return (((r + c) % 2) + ((r * c) % 3)) % 2 === 0;
-    default: return false;
-  }
-}
-
-function applyMask(mat: number[][], res: boolean[][], size: number, mask: number): void {
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      if (res[r][c]) continue;
-      if (maskBit(mask, r, c)) mat[r][c] ^= 1;
+// ISO 18004 §8.8.2 mask penalty (lower is better)
+function lostPoint(m: QRMatrix): number {
+  const n = m.size;
+  let p = 0;
+  // N1 — 3x3 neighbourhood similarity (finder-protection heuristic)
+  for (let r = 0; r < n; r++)
+    for (let c = 0; c < n; c++) {
+      let same = 0;
+      const dark = m.isDark(r, c);
+      for (let dr = -1; dr <= 1; dr++) {
+        if (r + dr < 0 || n <= r + dr) continue;
+        for (let dc = -1; dc <= 1; dc++) {
+          if (c + dc < 0 || n <= c + dc) continue;
+          if (dr === 0 && dc === 0) continue;
+          if (dark === m.isDark(r + dr, c + dc)) same++;
+        }
+      }
+      if (same > 5) p += 3 + same - 5;
     }
-  }
+  // N2 — 2x2 same-colour blocks
+  for (let r = 0; r < n - 1; r++)
+    for (let c = 0; c < n - 1; c++) {
+      let cnt = 0;
+      if (m.isDark(r, c)) cnt++;
+      if (m.isDark(r + 1, c)) cnt++;
+      if (m.isDark(r, c + 1)) cnt++;
+      if (m.isDark(r + 1, c + 1)) cnt++;
+      if (cnt === 0 || cnt === 4) p += 3;
+    }
+  // N3 — 1:1:3:1:1 finder-like run in rows and columns
+  for (let r = 0; r < n; r++)
+    for (let c = 0; c < n - 6; c++) {
+      if (m.isDark(r, c) && !m.isDark(r, c + 1) && m.isDark(r, c + 2)
+        && m.isDark(r, c + 3) && m.isDark(r, c + 4) && !m.isDark(r, c + 5) && m.isDark(r, c + 6)) p += 40;
+    }
+  for (let c = 0; c < n; c++)
+    for (let r = 0; r < n - 6; r++) {
+      if (m.isDark(r, c) && !m.isDark(r + 1, c) && m.isDark(r + 2, c)
+        && m.isDark(r + 3, c) && m.isDark(r + 4, c) && !m.isDark(r + 5, c) && m.isDark(r + 6, c)) p += 40;
+    }
+  // N4 — overall dark ratio
+  let dark = 0;
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (m.isDark(r, c)) dark++;
+  const ratio = Math.abs(100 * dark / n / n - 50) / 5;
+  p += ratio * 10;
+  return p;
 }
 
-// ── Format info (15 bits, BCH error correction) ───────────────
-function drawFormatInfo(mat: number[][], size: number, mask: number): void {
-  const ecLevel = 0b00; // M
-  let data = (ecLevel << 3) | mask;
-  let bch = data << 10;
-  for (let i = 4; i >= 0; i--) {
-    if ((bch >> (i + 10)) & 1) bch ^= 0x537 << i;
+// Pick the smallest version (1..40) whose H-level data capacity fits.
+function pickVersion(bytes: number[]): number {
+  for (let v = 1; v <= 40; v++) {
+    let totalData = 0;
+    for (const b of getRsBlocks(v)) totalData += b.data;
+    // 4 (mode) + lengthBits + 8*bytes must fit
+    if (4 + lengthBits(v) + 8 * bytes.length <= totalData * 8) return v;
   }
-  const bits = ((data << 10) | bch) ^ 0x5412;
-
-  for (let i = 0; i < 6; i++) mat[8][i]               = (bits >> i) & 1;
-  mat[8][7] = (bits >> 6) & 1;
-  mat[8][8] = (bits >> 7) & 1;
-  mat[7][8] = (bits >> 8) & 1;
-  for (let i = 9; i < 15; i++) mat[14 - i][8]         = (bits >> i) & 1;
-  for (let i = 0; i < 8; i++) mat[size - 1 - i][8]    = (bits >> i) & 1;
-  for (let i = 8; i < 15; i++) mat[8][size - 15 + i]  = (bits >> i) & 1;
+  throw new Error('Input too long for QR H v1-40');
 }
 
+// Build one full matrix (test or real) for a version + mask.
+function makeImpl(version: number, test: boolean, maskPattern: number, data: number[]): QRMatrix {
+  const m = new QRMatrix(version, test);
+  m.setupPositionProbe(0, 0);
+  m.setupPositionProbe(m.size - 7, 0);
+  m.setupPositionProbe(0, m.size - 7);
+  m.setupPositionAdjust(version);
+  m.setupTimingPattern();
+  m.setupTypeInfo(maskPattern);
+  if (version >= 7) m.setupTypeNumber(version);
+  m.mapData(data, maskPattern);
+  return m;
+}
+
+/**
+ * Generate a QR code matrix for the given UTF-8 text at level H (~30% recovery).
+ * Throws if the text cannot fit even at version 40.
+ */
+export function generateQr(text: string): QrResult {
+  const bytes = utf8Bytes(text);
+  const version = pickVersion(bytes);
+  const data = createData(version, new Uint8Array(bytes));
+
+  // choose the mask with the lowest penalty score
+  let bestMask = 0;
+  let bestScore = Infinity;
+  for (let mk = 0; mk < 8; mk++) {
+    const tm = makeImpl(version, true, mk, data);
+    const score = lostPoint(tm);
+    if (score < bestScore) { bestScore = score; bestMask = mk; }
+  }
+
+  const m = makeImpl(version, false, bestMask, data);
+  const matrix = m.modules.map((row) => row.map((v) => v === true));
+  return { size: m.size, matrix, version };
+}

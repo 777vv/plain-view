@@ -187,6 +187,7 @@ function applyPlaceholder(): void {
 // ── Icons (12px / 14px) ───────────────────────────────────────
 const ICONS = {
   copy:     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="8" height="10" rx="1"/><path d="M6 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/></svg>',
+  check:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8 6 11 13 4"/></svg>',
   clear:    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h10"/><path d="M5 5V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M5 5l1 9a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1l1-9"/></svg>',
   fontSize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14 L8 3 L13 14"/><line x1="5" y1="10" x2="11" y2="10"/></svg>',
   repo:     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 8v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4"/><polyline points="9 3 13 3 13 7"/><line x1="13" y1="3" x2="7" y2="9"/></svg>',
@@ -205,6 +206,53 @@ function fontSizeTip(size: FontSize): string {
   return isZh() ? `字号:${fontSizeLabel(size)}` : `Font size: ${fontSizeLabel(size)}`;
 }
 
+// Build a gutter whose line-number rows match the *visual* height of each
+// logical line in a wrapping textarea. A hidden mirror div measures how tall
+// each line renders (1 row, or more if it wraps), so line numbers stay aligned
+// even when text wraps. Returns a refresh() to call on input/resize.
+function attachWrappedGutter(ta: HTMLTextAreaElement, gutterInner: HTMLElement): () => void {
+  const mirror = document.createElement('div');
+  mirror.style.cssText =
+    'position:absolute;visibility:hidden;left:-9999px;top:0;' +
+    'white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;';
+  document.body.appendChild(mirror);
+
+  function refresh(): void {
+    const cs = getComputedStyle(ta);
+    mirror.style.fontFamily  = cs.fontFamily;
+    mirror.style.fontSize    = cs.fontSize;
+    mirror.style.lineHeight  = cs.lineHeight;
+    mirror.style.paddingLeft = cs.paddingLeft;
+    mirror.style.paddingRight = cs.paddingRight;
+    mirror.style.width = ta.clientWidth + 'px';
+
+    const lines = ta.value.split('\n');
+
+    // Measure each logical line's rendered height
+    mirror.innerHTML = '';
+    const blocks: HTMLDivElement[] = [];
+    for (const ln of lines) {
+      const d = document.createElement('div');
+      d.style.cssText = 'white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;';
+      d.textContent = ln === '' ? '​' : ln;
+      mirror.appendChild(d);
+      blocks.push(d);
+    }
+
+    // Rebuild gutter rows with matching heights
+    gutterInner.innerHTML = '';
+    for (let i = 0; i < lines.length; i++) {
+      const g = document.createElement('div');
+      g.className = 'fv-pg-gutter-ln';
+      g.textContent = String(i + 1);
+      g.style.height = blocks[i].offsetHeight + 'px';
+      gutterInner.appendChild(g);
+    }
+  }
+
+  return refresh;
+}
+
 function build(): void {
   // ── Toolbar ─────────────────────────────────────────────────
   const toolbar = document.createElement('div');
@@ -219,16 +267,25 @@ function build(): void {
   const copyBtn  = iconBtn(ICONS.copy,  t('复制结果', 'Copy result'));
   copyBtn.addEventListener('click', () => {
     const txt = currentOutputText();
-    if (txt != null) copyText(txt);
+    if (txt == null) return;
+    copyText(txt).then(() => {
+      const orig = copyBtn.innerHTML;
+      copyBtn.innerHTML = ICONS.check;
+      setTimeout(() => { copyBtn.innerHTML = orig; }, 1200);
+    });
   });
 
   const clearBtn = iconBtn(ICONS.clear, t('清空当前格式', 'Clear current format'));
   clearBtn.addEventListener('click', () => {
     if (currentMode === 'memo') {
-      const a = document.getElementById('fv-memo-1') as HTMLTextAreaElement | null;
-      const b = document.getElementById('fv-memo-2') as HTMLTextAreaElement | null;
-      if (a) a.value = '';
-      if (b) b.value = '';
+      const f = currentMemo();
+      if (f && memoTitleEl && memoBodyEl) {
+        memoTitleEl.value = '';
+        memoBodyEl.value = '';
+        f.title = '';
+        f.content = '';
+        renderMemoList();
+      }
       saveMemo();
     } else if (currentMode === 'diff') {
       diffLeft.value  = '';
@@ -298,40 +355,44 @@ function build(): void {
   inputHeader.className = 'fv-pg-pane-header';
   inputHeader.textContent = t('输入', 'Input');
 
-  // Gutter for the input textarea — shares font-size/line-height with the
-  // textarea so every row stays aligned. Padding-top matches textarea's 14px.
+  // Gutter + textarea scroll together in a shared container so wrapping
+  // doesn't break alignment.
+  const inputScroll = document.createElement('div');
+  inputScroll.style.cssText = 'flex:1;min-height:0;overflow:auto;';
+
+  const inputNumbered = document.createElement('div');
+  inputNumbered.className = 'fv-pg-numbered';
+
   const inputGutter = document.createElement('div');
   inputGutter.className = 'fv-pg-gutter';
-  inputGutter.style.position = 'static';
   inputGutter.style.paddingTop = '14px';
   const inputGutterInner = document.createElement('div');
   inputGutter.appendChild(inputGutterInner);
 
-  // Textarea fills the content area
   const inputContent = document.createElement('div');
   inputContent.className = 'fv-pg-content';
-  inputContent.style.position = 'relative';
 
   input = document.createElement('textarea');
   input.className = 'fv-pg-input';
   input.spellcheck = false;
+  // Auto-expand to content height so the parent scroll container handles
+  // all scrolling. The gutter and content then scroll together naturally.
+  input.style.overflow = 'hidden';
+  input.style.resize = 'none';
+  input.style.minHeight = '100%';
 
   let debounce: ReturnType<typeof setTimeout> | null = null;
-  let inputLineCount = 1;
 
-  function refreshInputGutterFn(): void {
-    const lines = Math.max(1, input.value.split('\n').length);
-    if (lines === inputLineCount) return;
-    inputLineCount = lines;
-    while (inputGutterInner.childElementCount > lines) inputGutterInner.removeChild(inputGutterInner.lastChild!);
-    while (inputGutterInner.childElementCount < lines) {
-      const d = document.createElement('div');
-      d.className = 'fv-pg-gutter-ln';
-      inputGutterInner.appendChild(d);
-    }
-    for (let i = 0; i < lines; i++) {
-      (inputGutterInner.children[i] as HTMLElement).textContent = String(i + 1);
-    }
+  const refreshInputGutterFn = attachWrappedGutter(input, inputGutterInner);
+
+  function expandTextarea(): void {
+    input.style.height = 'auto';
+    input.style.height = input.scrollHeight + 'px';
+  }
+
+  function syncInput(): void {
+    expandTextarea();
+    refreshInputGutterFn();
   }
 
   input.addEventListener('input', () => {
@@ -339,21 +400,14 @@ function build(): void {
       state.inputs[currentMode] = input.value;
     }
     scheduleSave();
-    refreshInputGutterFn();
+    syncInput();
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(runFormat, 120);
   });
 
-  // Sync gutter scroll position with the textarea's content position.
-  // Since we hide the textarea's native scrollbar, we use the parent's scroll.
-  input.addEventListener('scroll', () => {
-    inputGutterInner.style.transform = `translateY(${-input.scrollTop}px)`;
-  });
+  refreshInputGutter = syncInput;
 
-  // On resize (e.g. font-size toggle), update the gutter.
-  refreshInputGutter = refreshInputGutterFn;
-
-  const inputObserver = new ResizeObserver(() => refreshInputGutterFn());
+  const inputObserver = new ResizeObserver(() => syncInput());
   inputObserver.observe(input);
 
   // Drag-and-drop file → load content + auto-switch mode
@@ -392,18 +446,14 @@ function build(): void {
     reader.readAsText(file);
   });
 
-  const inputWrap = document.createElement('div');
-  inputWrap.className = 'fv-pg-numbered';
-  inputWrap.style.flex = '1';
-  inputWrap.style.minHeight = '0';
   input.style.width = '100%';
-  input.style.height = '100%';
   inputContent.appendChild(input);
-  inputWrap.append(inputGutter, inputContent);
-  inputPane.append(inputHeader, inputWrap);
+  inputNumbered.append(inputGutter, inputContent);
+  inputScroll.appendChild(inputNumbered);
+  inputPane.append(inputHeader, inputScroll);
 
-  // Current-line highlight for the main input
-  addLineHighlight(input, inputContent);
+  // Initial expand + gutter
+  requestAnimationFrame(() => syncInput());
 
   // Output pane: header (sub-chips slot) + output body
   const outputPane = document.createElement('div');
@@ -495,7 +545,7 @@ function runFormat(): void {
   resetOutputHeader();
 
   if (!raw.trim()) {
-    output.innerHTML = '';
+    showEmptyOutput();
     return;
   }
 
@@ -530,6 +580,18 @@ function runFormat(): void {
 
 // ── Renderers (output side) ───────────────────────────────────
 type JsonView = 'format' | 'minify' | 'escape' | 'unescape';
+
+// Friendly empty-state placeholder for the output pane.
+function showEmptyOutput(): void {
+  output.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'fv-pg-empty';
+  wrap.innerHTML = '<div class="fv-pg-empty-icon">'
+    + '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12a0 0 0 0 1 0 0H4z"/><path d="M16 4v4h4"/></svg>'
+    + '</div>'
+    + '<div class="fv-pg-empty-text">' + t('在左侧粘贴内容，即可在此查看结果', 'Paste content on the left to see formatted output here') + '</div>';
+  output.appendChild(wrap);
+}
 
 const WRAP_WIDTH = 72;
 
@@ -641,7 +703,12 @@ function renderJson(raw: string): void {
   cpBtn.textContent = t('复制', 'Copy');
   cpBtn.addEventListener('click', () => {
     const txt = lastResultText;
-    if (txt != null) copyText(txt);
+    if (txt == null) return;
+    copyText(txt).then(() => {
+      const orig = cpBtn.textContent;
+      cpBtn.textContent = '✓';
+      setTimeout(() => { cpBtn.textContent = orig; }, 1200);
+    });
   });
   picker.appendChild(cpBtn);
 
@@ -788,9 +855,7 @@ function renderMarkdown(raw: string): void {
   const root = document.createElement('div');
   root.className = 'fv-md-root';
   root.innerHTML = mdToHtml(raw);
-  const { wrap, refreshGutter } = withGutter(root);
-  output.appendChild(wrap);
-  refreshGutter(Math.max(1, raw.split('\n').length));
+  output.appendChild(root);
   lastResultText = root.innerText;
 }
 
@@ -977,7 +1042,7 @@ function renderTranslate(raw: string): void {
   function mkTrBtn(label: string, sl: string, tl: string): HTMLButtonElement {
     const b = document.createElement('button');
     b.className = 'fv-btn';
-    b.style.cssText = 'font-size:13px;padding:5px 14px;border:1px solid var(--fv-focus);color:#fff;background:#0550ae;border-radius:6px;';
+    b.style.cssText = 'font-size:13px;padding:5px 14px;border:1px solid var(--fv-focus);color:#fff;background:#d81b60;border-radius:6px;';
     b.textContent = label;
     b.addEventListener('click', () => doTranslate(sl, tl));
     return b;
@@ -1025,32 +1090,39 @@ function renderQr(raw: string): void {
   // Render QR using DOM elements — each module is a <b> tag with fixed
   // pixel dimensions. This guarantees pixel-perfect rendering regardless
   // of canvas anti-aliasing behaviour.
-  const SCALE = 18;
+  // Display scale is computed so the whole QR (incl. quiet zone) targets
+  // ~260px — comfortable for phone scanning without dominating the pane.
   const QUIET = 4;
+  const DISPLAY_TARGET = 260;
   const total = qr.size + QUIET * 2;
+  const DISPLAY_SCALE = Math.max(6, Math.floor(DISPLAY_TARGET / total));
   const grid = document.createElement('div');
   grid.className = 'fv-pg-qr';
   grid.style.cssText =
     `display:grid;` +
-    `grid-template-columns:repeat(${qr.size},${SCALE}px);` +
-    `grid-template-rows:repeat(${qr.size},${SCALE}px);` +
-    `padding:${QUIET * SCALE}px;` +
+    `grid-template-columns:repeat(${qr.size},${DISPLAY_SCALE}px);` +
+    `grid-template-rows:repeat(${qr.size},${DISPLAY_SCALE}px);` +
+    `padding:${QUIET * DISPLAY_SCALE}px;` +
     `background:#fff;` +
-    `width:${qr.size * SCALE}px;` +
+    `width:${qr.size * DISPLAY_SCALE}px;` +
+    `border-radius:var(--fv-radius-md);` +
+    `box-shadow:var(--fv-shadow-md);` +
     `box-sizing:content-box;`;
 
   for (let r = 0; r < qr.size; r++) {
     for (let c = 0; c < qr.size; c++) {
       const m = document.createElement('b');
-      m.style.cssText = `display:block;width:${SCALE}px;height:${SCALE}px;` +
+      m.style.cssText = `display:block;width:${DISPLAY_SCALE}px;height:${DISPLAY_SCALE}px;` +
         `background:${qr.matrix[r][c] ? '#000' : '#fff'};`;
       grid.appendChild(m);
     }
   }
 
-  // Also build a canvas for the download button
+  // Build a high-resolution canvas for the download button (independent of
+  // the on-screen scale, so saved PNGs stay crisp at any zoom).
+  const DL_SCALE = 20;
   const canvas = document.createElement('canvas');
-  const cpx = (qr.size + QUIET * 2) * SCALE;
+  const cpx = (qr.size + QUIET * 2) * DL_SCALE;
   canvas.width = cpx;
   canvas.height = cpx;
   const ctx = canvas.getContext('2d')!;
@@ -1060,7 +1132,7 @@ function renderQr(raw: string): void {
   for (let r = 0; r < qr.size; r++)
     for (let c = 0; c < qr.size; c++)
       if (qr.matrix[r][c])
-        ctx.fillRect((c + QUIET) * SCALE, (r + QUIET) * SCALE, SCALE, SCALE);
+        ctx.fillRect((c + QUIET) * DL_SCALE, (r + QUIET) * DL_SCALE, DL_SCALE, DL_SCALE);
 
   const meta = document.createElement('div');
   meta.className = 'fv-pg-qr-meta';
@@ -1124,100 +1196,185 @@ function toggleDiffShell(on: boolean): void {
   const split = document.querySelector<HTMLElement>('.fv-pg-split');
   if (split) split.style.display = on ? 'none' : '';
   // Recompute the diff when entering diff mode (e.g. after restoring saved text)
-  if (on && diffRefresh) diffRefresh();
-}
-
-// ── Current-line highlight ─────────────────────────────────────
-// Adds a background overlay behind a textarea that highlights the line
-// the cursor is on. The textarea must already be in a position:relative
-// container and have `background: transparent` for the overlay to show.
-function addLineHighlight(ta: HTMLTextAreaElement, container: HTMLElement): () => void {
-  const hl = document.createElement('div');
-  hl.className = 'fv-pg-line-hl';
-  hl.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;' +
-    'pointer-events:none;overflow:hidden;padding:14px;' +
-    'font-family:var(--fv-font-mono);font-size:var(--fv-font-size);' +
-    'line-height:var(--fv-line-height);white-space:pre;';
-
-  const inner = document.createElement('div');
-  hl.appendChild(inner);
-  container.insertBefore(hl, ta);
-
-  // Make the textarea transparent so the overlay shows through
-  const prevBg = ta.style.background || getComputedStyle(ta).background;
-  ta.dataset.prevBg = prevBg;
-  ta.style.background = 'transparent';
-  ta.style.backgroundImage = 'none';
-
-  let currentLine = 0;
-
-  function getLine(): number {
-    const val = ta.value;
-    const pos = ta.selectionStart;
-    if (pos < 0) return 0;
-    let line = 0;
-    for (let i = 0; i < pos; i++) {
-      if (val[i] === '\n') line++;
-    }
-    return line;
+  if (on) {
+    if (diffRefresh) diffRefresh();
+    diffShell.classList.remove('fv-pg-fade');
+    void diffShell.offsetWidth;
+    diffShell.classList.add('fv-pg-fade');
   }
-
-  function paint(): void {
-    const lines = Math.max(1, ta.value.split('\n').length);
-    const line = getLine();
-    if (line === currentLine && inner.childElementCount === lines) return;
-    currentLine = line;
-
-    inner.innerHTML = '';
-    for (let i = 0; i < lines; i++) {
-      const d = document.createElement('div');
-      if (i === line) d.className = 'fv-pg-line-hl-active';
-      d.textContent = '​'; // zero-width space, keeps row height
-      inner.appendChild(d);
-    }
-  }
-
-  function syncScroll(): void {
-    inner.style.transform = `translateY(${-ta.scrollTop}px)`;
-    hl.scrollLeft = ta.scrollLeft;
-  }
-
-  // Disable wrapping so each logical line = one visual row
-  ta.wrap = 'off';
-
-  function paintSoon(): void { requestAnimationFrame(paint); }
-
-  ta.addEventListener('keydown', paintSoon);
-  ta.addEventListener('click', paint);
-  ta.addEventListener('focus', paint);
-  ta.addEventListener('scroll', syncScroll);
-  ta.addEventListener('input', paintSoon);
-  paint();
-  syncScroll();
-
-  return () => {
-    ta.style.background = ta.dataset.prevBg || '';
-    delete ta.dataset.prevBg;
-    hl.remove();
-  };
 }
 
 // ── Memo mode ─────────────────────────────────────────────────
-let memoShell: HTMLElement | null = null;
+// Data model: a list of memo files; the active file is shown in the editor.
+type MemoFile = {
+  id: string; title: string; content: string;
+  updatedAt: number;
+  createdAt: number;   // set once at creation; never mutated afterwards
+};
 
-const MEMO_KEY_1 = 'pg_memo_1';
-const MEMO_KEY_2 = 'pg_memo_2';
+let memoShell: HTMLElement | null = null;
+let memoFiles: MemoFile[] = [];
+let memoActiveId: string | null = null;
+// id of the file currently being dragged (for manual reordering).
+let memoDragId: string | null = null;
+// Cached handles to the editor elements (built once in buildMemoShell).
+let memoListEl: HTMLElement | null = null;
+let memoTitleEl: HTMLInputElement | null = null;
+let memoBodyEl: HTMLTextAreaElement | null = null;
+
+const MEMO_KEY = 'pg_memo_v2';
+const MEMO_CUR_KEY = 'pg_memo_cur';
+// Legacy keys from the old two-pane layout — cleared on first load of v2.
+const MEMO_LEGACY_KEYS = ['pg_memo_1', 'pg_memo_2'];
+
+function memoUid(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function currentMemo(): MemoFile | null {
+  if (!memoActiveId) return null;
+  return memoFiles.find((f) => f.id === memoActiveId) ?? null;
+}
+
+// Write the editor's current values back into the active file record.
+function flushEditorToMemo(): void {
+  const f = currentMemo();
+  if (!f || !memoTitleEl || !memoBodyEl) return;
+  f.title = memoTitleEl.value;
+  f.content = memoBodyEl.value;
+  f.updatedAt = Date.now();
+}
 
 function saveMemo(): void {
   if (memoTimer) clearTimeout(memoTimer);
   memoTimer = setTimeout(() => {
-    const a = document.getElementById('fv-memo-1') as HTMLTextAreaElement | null;
-    const b = document.getElementById('fv-memo-2') as HTMLTextAreaElement | null;
+    flushEditorToMemo();
     chrome.storage.local.set({
-      [MEMO_KEY_1]: a?.value ?? '',
-      [MEMO_KEY_2]: b?.value ?? '',
+      [MEMO_KEY]: memoFiles,
+      [MEMO_CUR_KEY]: memoActiveId,
     }).catch(() => { /* ignore */ });
   }, 300);
+}
+
+function renderMemoList(): void {
+  if (!memoListEl) return;
+  memoListEl.textContent = '';
+  for (const f of memoFiles) {
+    const item = document.createElement('div');
+    item.className = 'fv-memo-item' + (f.id === memoActiveId ? ' active' : '');
+    item.draggable = true;
+    item.dataset.id = f.id;
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = f.title || t('无标题', 'Untitled');
+    item.appendChild(title);
+
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.type = 'button';
+    del.setAttribute('aria-label', t('删除', 'Delete'));
+    del.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h10"/><path d="M5 5V3.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V5"/><path d="M5 5l.7 8a1 1 0 0 0 1 1h2.6a1 1 0 0 0 1-1L11 5"/><path d="M7 8v3M9 8v3"/></svg>';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!window.confirm(t('确定删除此备忘录？', 'Delete this memo?'))) return;
+      deleteMemo(f.id);
+    });
+    item.appendChild(del);
+
+    item.addEventListener('click', () => selectMemo(f.id));
+
+    // ── Drag & drop reordering ──
+    item.addEventListener('dragstart', () => {
+      memoDragId = f.id;
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      memoDragId = null;
+      item.classList.remove('dragging');
+      memoListEl?.querySelectorAll('.fv-memo-item.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!memoDragId || memoDragId === f.id) return;
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      if (!memoDragId || memoDragId === f.id) return;
+      // Decide insertion half via cursor Y vs. item midpoint.
+      const rect = item.getBoundingClientRect();
+      const after = (e.clientY - rect.top) > rect.height / 2;
+      reorderMemo(memoDragId, f.id, after);
+    });
+
+    memoListEl.appendChild(item);
+  }
+}
+
+// Move the dragged file (dragId) to the position of targetId, either before
+// or after it depending on the `after` flag. Saves the new order.
+function reorderMemo(dragId: string, targetId: string, after: boolean): void {
+  const from = memoFiles.findIndex((f) => f.id === dragId);
+  if (from < 0) return;
+  const [moved] = memoFiles.splice(from, 1);
+  let to = memoFiles.findIndex((f) => f.id === targetId);
+  if (to < 0) { memoFiles.push(moved); }
+  else { memoFiles.splice(after ? to + 1 : to, 0, moved); }
+  renderMemoList();
+  saveMemo();
+}
+
+function loadMemoIntoEditor(f: MemoFile): void {
+  if (!memoTitleEl || !memoBodyEl) return;
+  memoTitleEl.value = f.title;
+  memoBodyEl.value = f.content;
+}
+
+function selectMemo(id: string): void {
+  flushEditorToMemo();
+  const f = memoFiles.find((m) => m.id === id);
+  if (!f) return;
+  memoActiveId = id;
+  loadMemoIntoEditor(f);
+  renderMemoList();
+  saveMemo();
+}
+
+function createMemo(): void {
+  flushEditorToMemo();
+  const now = Date.now();
+  const f: MemoFile = { id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now };
+  memoFiles.unshift(f);
+  memoActiveId = f.id;
+  loadMemoIntoEditor(f);
+  renderMemoList();
+  saveMemo();
+  memoTitleEl?.focus();
+}
+
+function deleteMemo(id: string): void {
+  const idx = memoFiles.findIndex((f) => f.id === id);
+  if (idx < 0) return;
+  memoFiles.splice(idx, 1);
+  // Keep at least one file around — recreate a blank one if we emptied the list.
+  if (memoFiles.length === 0) {
+    const now = Date.now();
+    const f: MemoFile = { id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now };
+    memoFiles.push(f);
+    memoActiveId = f.id;
+    loadMemoIntoEditor(f);
+  } else if (memoActiveId === id) {
+    // Deleted the active file — switch to the first remaining one.
+    memoActiveId = memoFiles[0].id;
+    loadMemoIntoEditor(memoFiles[0]);
+  }
+  renderMemoList();
+  saveMemo();
 }
 
 function buildMemoShell(): void {
@@ -1229,96 +1386,98 @@ function buildMemoShell(): void {
   bar.className = 'fv-pg-diff-bar';
   bar.style.justifyContent = 'space-between';
 
+  const title = document.createElement('span');
+  title.style.cssText = 'font-size:13px;font-weight:700;letter-spacing:.05em;color:var(--fv-text);';
+  title.textContent = t('备忘录', 'Memo');
+  bar.appendChild(title);
+
   const exportBtn = document.createElement('button');
   exportBtn.className = 'fv-btn';
-  exportBtn.dataset.tip = t('导出 TXT', 'Export TXT');
+  exportBtn.dataset.tip = t('导出当前 TXT', 'Export current as TXT');
   exportBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m-3-3 3 3 3-3"/><path d="M2 10v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3"/></svg>'
     + '<span style="font-size:12px">' + t('导出', 'Export') + '</span>';
   exportBtn.addEventListener('click', () => {
-    const a = document.getElementById('fv-memo-1') as HTMLTextAreaElement | null;
-    const b = document.getElementById('fv-memo-2') as HTMLTextAreaElement | null;
-    if (a) downloadText('memo-1.txt', a.value);
-    if (b) downloadText('memo-2.txt', b.value);
+    const f = currentMemo();
+    if (!f) return;
+    const name = (f.title || 'memo').replace(/[\\/:*?"<>|]/g, '_').trim() || 'memo';
+    downloadText(name + '.txt', f.content);
   });
   bar.appendChild(exportBtn);
   memoShell.appendChild(bar);
 
   const body = document.createElement('div');
-  body.style.cssText = 'flex:1;display:grid;grid-template-columns:1fr 4px 1fr;grid-template-rows:1fr;min-height:0;';
+  body.style.cssText = 'flex:1;display:grid;grid-template-columns:240px 4px 1fr;grid-template-rows:1fr;min-height:0;';
 
-  const left = mkMemoPane(t('备忘录 1', 'Memo 1'), 'fv-memo-1');
-  const right = mkMemoPane(t('备忘录 2', 'Memo 2'), 'fv-memo-2');
+  // ── Left sidebar: new-file button + scrollable file list ──
+  const sidebar = document.createElement('div');
+  sidebar.className = 'fv-memo-sidebar';
+
+  const newBtn = document.createElement('button');
+  newBtn.className = 'fv-memo-new';
+  newBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>'
+    + '<span>' + t('新建文件', 'New file') + '</span>';
+  newBtn.addEventListener('click', createMemo);
+  sidebar.appendChild(newBtn);
+
+  const list = document.createElement('div');
+  list.className = 'fv-memo-list';
+  memoListEl = list;
+  sidebar.appendChild(list);
+
   const divider = document.createElement('div');
   divider.style.cssText = 'background:var(--fv-border);';
 
-  body.append(left, divider, right);
+  // ── Right editor: title input + body textarea (no line-number gutter) ──
+  const editor = document.createElement('div');
+  editor.className = 'fv-memo-editor';
+
+  const titleInput = document.createElement('input');
+  titleInput.type = 'text';
+  titleInput.className = 'fv-memo-title';
+  titleInput.placeholder = t('标题', 'Title');
+  titleInput.spellcheck = false;
+  titleInput.addEventListener('input', () => {
+    flushEditorToMemo();
+    renderMemoList();
+    saveMemo();
+  });
+  memoTitleEl = titleInput;
+
+  const bodyTa = document.createElement('textarea');
+  bodyTa.className = 'fv-memo-body';
+  bodyTa.spellcheck = false;
+  bodyTa.placeholder = t('在此输入备忘内容…', 'Type your notes here…');
+  bodyTa.addEventListener('input', () => { saveMemo(); });
+  memoBodyEl = bodyTa;
+
+  editor.append(titleInput, bodyTa);
+
+  body.append(sidebar, divider, editor);
   memoShell.appendChild(body);
   document.body.appendChild(memoShell);
 
-  // Load saved content
-  chrome.storage.local.get([MEMO_KEY_1, MEMO_KEY_2]).then((data) => {
-    const a = document.getElementById('fv-memo-1') as HTMLTextAreaElement | null;
-    const b = document.getElementById('fv-memo-2') as HTMLTextAreaElement | null;
-    if (a) a.value = (data[MEMO_KEY_1] as string) ?? '';
-    if (b) b.value = (data[MEMO_KEY_2] as string) ?? '';
+  // Load saved files (or seed a default one), then activate.
+  chrome.storage.local.get([MEMO_KEY, MEMO_CUR_KEY]).then((data) => {
+    const files = data[MEMO_KEY] as MemoFile[] | undefined;
+    const now = Date.now();
+    memoFiles = Array.isArray(files) && files.length > 0
+      ? files
+      : [{ id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now }];
+    // Backfill createdAt on legacy records (pre-dating the sort feature).
+    for (const f of memoFiles) {
+      if (typeof f.createdAt !== 'number') f.createdAt = f.updatedAt;
+    }
+    memoActiveId = (data[MEMO_CUR_KEY] as string | undefined) ?? memoFiles[0].id;
+    if (!memoFiles.some((f) => f.id === memoActiveId)) memoActiveId = memoFiles[0].id;
+    const active = memoFiles.find((f) => f.id === memoActiveId) ?? memoFiles[0];
+    memoActiveId = active.id;
+    loadMemoIntoEditor(active);
+    renderMemoList();
+    if (memoFiles.length === 0 || !files || files.length === 0) saveMemo();
   }).catch(() => { /* ignore */ });
-}
 
-function mkMemoPane(title: string, id: string): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:column;min-width:0;min-height:0;flex:1;background:var(--fv-bg);';
-
-  const head = document.createElement('div');
-  head.className = 'fv-pg-pane-header';
-  head.textContent = title;
-  wrap.appendChild(head);
-
-  // Scroll-synced gutter, same as the main playground input
-  const gutter = document.createElement('div');
-  gutter.className = 'fv-pg-gutter';
-  gutter.style.position = 'static';
-  gutter.style.paddingTop = '14px';
-  const gutterInner = document.createElement('div');
-  gutter.appendChild(gutterInner);
-
-  const contentWrap = document.createElement('div');
-  contentWrap.className = 'fv-pg-content';
-  contentWrap.style.cssText = 'min-height:0;position:relative;';
-
-  const ta = document.createElement('textarea');
-  ta.id = id;
-  ta.className = 'fv-pg-input';
-  ta.style.cssText = 'width:100%;height:100%;';
-  ta.spellcheck = false;
-
-  function refreshGutter(): void {
-    const lines = Math.max(1, ta.value.split('\n').length);
-    while (gutterInner.childElementCount > lines) gutterInner.removeChild(gutterInner.lastChild!);
-    while (gutterInner.childElementCount < lines) {
-      const d = document.createElement('div');
-      d.className = 'fv-pg-gutter-ln';
-      gutterInner.appendChild(d);
-    }
-    for (let i = 0; i < lines; i++) {
-      (gutterInner.children[i] as HTMLElement).textContent = String(i + 1);
-    }
-  }
-
-  ta.addEventListener('input', () => { saveMemo(); refreshGutter(); });
-  ta.addEventListener('scroll', () => {
-    gutterInner.style.transform = `translateY(${-ta.scrollTop}px)`;
-  });
-  refreshGutter();
-
-  const row = document.createElement('div');
-  row.className = 'fv-pg-numbered';
-  row.style.flex = '1';
-  row.style.minHeight = '0';
-  contentWrap.appendChild(ta);
-  addLineHighlight(ta, contentWrap);
-  row.append(gutter, contentWrap);
-  wrap.appendChild(row);
-  return wrap;
+  // Clear legacy two-pane data on first run of v2.
+  chrome.storage.local.remove(MEMO_LEGACY_KEYS).catch(() => { /* ignore */ });
 }
 
 function downloadText(filename: string, content: string): void {
@@ -1335,4 +1494,9 @@ function toggleMemoShell(on: boolean): void {
   memoShell.style.display = on ? '' : 'none';
   const split = document.querySelector<HTMLElement>('.fv-pg-split');
   if (split) split.style.display = on ? 'none' : '';
+  if (on) {
+    memoShell.classList.remove('fv-pg-fade');
+    void memoShell.offsetWidth;
+    memoShell.classList.add('fv-pg-fade');
+  }
 }

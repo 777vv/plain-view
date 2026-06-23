@@ -172,7 +172,6 @@ function mkSide(which: 'left' | 'right', title: string): SidePanel {
   const editor = document.createElement('textarea');
   editor.className = 'fv-diff-editor';
   editor.spellcheck = false;
-  editor.wrap = 'off';
 
   textWrap.append(bg, editor);
   scrollWrap.append(gutter, textWrap);

@@ -1,53 +1,61 @@
 :root {
-  --bg:          #ffffff;
-  --bg-2:        #f6f8fa;
-  --bg-3:        #eaeef2;
-  --border:      #d0d7de;
-  --text:        #1f2328;
-  --text-muted:  #656d76;
-  --accent:      #0969da;
-  --accent-bg:   #ddf4ff;
-  --radius:      6px;
-  --font-sans:   -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --bg:            #ffffff;
+  --bg-2:          #fdf2f7;
+  --bg-3:          #fbe0ec;
+  --border:        #f3d4e1;
+  --text:          #1f2328;
+  --text-muted:    #8c5572;
+  --accent:        #ed4588;
+  --accent-strong: #d81b60;
+  --accent-bg:     #fdf2f7;
+  --shadow:        0 1px 3px rgba(216,27,96,.08);
+  --radius:        10px;
+  --font-sans:     -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg:        #0d1117;
-    --bg-2:      #161b22;
-    --bg-3:      #21262d;
-    --border:    #30363d;
-    --text:      #e6edf3;
-    --text-muted:#8b949e;
-    --accent:    #58a6ff;
-    --accent-bg: #1f3548;
-  }
+/* Dark theme — synced with the main app via data-fv-theme (set in popup.ts) */
+[data-fv-theme="github-dark"] {
+  --bg:            #1a0e16;
+  --bg-2:          #2a1220;
+  --bg-3:          #3a0d22;
+  --border:        #3d1c2c;
+  --text:          #f5e8ef;
+  --text-muted:    #c89aaf;
+  --accent:        #f56fa6;
+  --accent-strong: #d81b60;
+  --accent-bg:     #2a1220;
+  --shadow:        0 1px 3px rgba(0,0,0,.3);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  width: 280px;
+  width: 300px;
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
 }
 
-/* Header */
+/* Header — rose tinted gradient */
 .popup-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px 10px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-2);
+  background: linear-gradient(180deg, var(--accent-bg) 0%, var(--bg) 100%);
 }
-.popup-logo    { font-size: 18px; line-height: 1; }
+.popup-logo {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 1px 2px rgba(216,27,96,.2);
+}
 .popup-title   { font-weight: 600; font-size: 14px; flex: 1; }
 .popup-version { color: var(--text-muted); font-size: 11px; }
 
-/* Status */
+/* Status (legacy — kept for compatibility) */
 .popup-status {
   display: flex;
   align-items: center;
@@ -66,27 +74,33 @@ body {
 .status-dot.inactive { background: var(--border); }
 
 /* Sections */
-.popup-section { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.popup-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .popup-section:last-child { border-bottom: none; }
 
-/* Primary action button (Open Playground) */
+/* Primary action button — gradient fill + depth */
 .popup-action {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--accent);
+  padding: 9px 14px;
+  border: none;
   border-radius: var(--radius);
-  background: var(--accent-bg);
-  color: var(--accent);
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+  color: #fff;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: filter .12s;
+  box-shadow: 0 2px 6px rgba(216,27,96,.3);
+  transition: transform .08s, box-shadow .15s, filter .15s;
 }
-.popup-action:hover { filter: brightness(.96); }
+.popup-action:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(216,27,96,.4);
+}
+.popup-action:active { transform: translateY(0); }
 .popup-action-arrow { font-size: 14px; }
 
 .section-label {
@@ -103,7 +117,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 0;
+  padding: 5px 0;
 }
 
 .format-name {
@@ -124,10 +138,14 @@ body {
   background: var(--bg-3);
   border-radius: 9px;
   cursor: pointer;
-  transition: background .15s;
+  transition: background .15s, border-color .15s, box-shadow .15s;
   border: 1px solid var(--border);
 }
-.toggle-switch input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
+.toggle-switch input:checked + .toggle-track {
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 1px rgba(237,69,136,.2);
+}
 .toggle-track::after {
   content: '';
   position: absolute;
