@@ -141,6 +141,27 @@ body.fv-size-large  { --fv-font-size: 22px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fv-scroll-hover); background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* Make scrollbars in the input/output panes clearly visible and easy to grab.
+ * The transparent right-border insets the thumb from the pane edge so it
+ * isn't flush against the window border. */
+.fv-pg-output::-webkit-scrollbar,
+.fv-pg-pane > div::-webkit-scrollbar { width: 12px; height: 12px; }
+.fv-pg-output::-webkit-scrollbar-track,
+.fv-pg-pane > div::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+.fv-pg-output::-webkit-scrollbar-thumb,
+.fv-pg-pane > div::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--fv-text-muted) 55%, transparent);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  border-right: 3px solid transparent;
+  background-clip: padding-box;
+}
+.fv-pg-output::-webkit-scrollbar-thumb:hover,
+.fv-pg-pane > div::-webkit-scrollbar-thumb:hover {
+  background: var(--fv-text-muted);
+  background-clip: padding-box;
+}
+
 /* ── Toolbar ────────────────────────────────────────────────── */
 .fv-toolbar {
   position: fixed;
@@ -734,18 +755,41 @@ body.fv-playground-body { overflow: hidden; }
   top: calc(var(--fv-toolbar-h) + 46px);
   left: 0; right: 0; bottom: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
+  grid-template-columns: 1fr 6px 1fr;
   background: var(--fv-border);
 }
 
-/* Each side is a column: optional header + scrollable body */
+/* Draggable divider between input/output panes */
+.fv-pg-divider {
+  cursor: col-resize;
+  background: var(--fv-border);
+  position: relative;
+  transition: background .15s;
+}
+.fv-pg-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px; height: 24px;
+  border-radius: 2px;
+  background: var(--fv-scroll);
+  transition: background .15s;
+}
+.fv-pg-divider:hover { background: var(--fv-hover-accent); }
+.fv-pg-divider:hover::after { background: var(--fv-focus); }
+
+
+/* Each side is a column: optional header + scrollable body.
+ * overflow:visible so header tooltips (::after) aren't clipped; each body
+ * element manages its own scrolling. */
 .fv-pg-pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--fv-bg);
+  min-height: 0;
   overflow: hidden;
+  background: var(--fv-bg);
 }
 .fv-pg-pane-header {
   flex-shrink: 0;
@@ -761,6 +805,17 @@ body.fv-playground-body { overflow: hidden; }
   font-weight: 700;
   color: var(--fv-text);
   letter-spacing: .06em;
+  position: relative; /* anchor for the history dropdown */
+  z-index: 20;        /* keep header + its tooltips above the scrolling body */
+}
+.fv-pg-pane-header .fv-btn { padding: 2px 6px; }
+.fv-pg-pane-header .fv-btn svg { width: 14px; height: 14px; }
+
+/* Disabled toolbar button */
+.fv-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .fv-pg-input {
@@ -810,7 +865,7 @@ body.fv-playground-body { overflow: hidden; }
 .fv-pg-empty-text { font-size: 13px; max-width: 240px; line-height: 1.6; }
 
 /* Decoder section (used by base64/url) */
-.fv-pg-decoder { display: flex; flex-direction: column; gap: 14px; }
+.fv-pg-decoder { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 
 .fv-pg-section {
   border: 1px solid var(--fv-border);
@@ -916,6 +971,7 @@ body.fv-playground-body { overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
 }
 /* JSON textbox: keep tree-view's "flowing text" feel, no code-block chrome */
 .fv-pg-json-text {

@@ -33,6 +33,7 @@ type StoredState = {
   diffRight?: string;
   jsonView?: JsonView;
   b64Dir?: Base64Dir;
+  splitRatio?: number;
 };
 
 const STORAGE_KEY = 'pg_state';
@@ -53,6 +54,8 @@ let input!: HTMLTextAreaElement;
 let output!: HTMLDivElement;
 let outputHeader!: HTMLElement;
 let chips!: HTMLElement;
+let copyBtn!: HTMLButtonElement;
+let split!: HTMLElement;
 let currentMode: Mode = 'json';
 
 let diffShell!: HTMLElement;
@@ -192,6 +195,8 @@ const ICONS = {
   fontSize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14 L8 3 L13 14"/><line x1="5" y1="10" x2="11" y2="10"/></svg>',
   repo:     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 8v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4"/><polyline points="9 3 13 3 13 7"/><line x1="13" y1="3" x2="7" y2="9"/></svg>',
   pin:      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1l2 4 4 1-3 3 1 4-4-2-4 2 1-4-3-3 4-1 2-4z"/></svg>',
+  maximize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"/></svg>',
+  minimize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v3H3M10 3v3h3M6 13v-3H3M10 13v-3h3"/></svg>',
 };
 
 function iconBtn(svg: string, tip: string): HTMLButtonElement {
@@ -264,10 +269,11 @@ function build(): void {
   const right = document.createElement('div');
   right.className = 'fv-toolbar-right';
 
-  const copyBtn  = iconBtn(ICONS.copy,  t('复制结果', 'Copy result'));
+  copyBtn = iconBtn(ICONS.copy,  t('复制结果', 'Copy result'));
   copyBtn.addEventListener('click', () => {
-    const txt = currentOutputText();
-    if (txt == null) return;
+    // memo mode: copy the active memo's content directly.
+    const txt = currentMode === 'memo' ? (currentMemo()?.content ?? null) : currentOutputText();
+    if (txt == null || txt === '') return;
     copyText(txt).then(() => {
       const orig = copyBtn.innerHTML;
       copyBtn.innerHTML = ICONS.check;
@@ -345,7 +351,7 @@ function build(): void {
   updateChips();
 
   // ── Split: input pane | output pane ─────────────────────────
-  const split = document.createElement('div');
+  split = document.createElement('div');
   split.className = 'fv-pg-split';
 
   // Input pane: header + numbered layout (gutter + textarea)
@@ -353,7 +359,18 @@ function build(): void {
   inputPane.className = 'fv-pg-pane';
   const inputHeader = document.createElement('div');
   inputHeader.className = 'fv-pg-pane-header';
-  inputHeader.textContent = t('输入', 'Input');
+  const inputTitle = document.createElement('span');
+  inputTitle.textContent = t('输入', 'Input');
+  inputHeader.appendChild(inputTitle);
+
+  const headerSpacer = document.createElement('span');
+  headerSpacer.style.cssText = 'flex:1;';
+  inputHeader.appendChild(headerSpacer);
+
+  // Maximize / restore button.
+  const inputMaxBtn = iconBtn(ICONS.maximize, t('全屏', 'Maximize'));
+  inputMaxBtn.style.padding = '2px 6px';
+  inputHeader.appendChild(inputMaxBtn);
 
   // Gutter + textarea scroll together in a shared container so wrapping
   // doesn't break alignment.
@@ -379,7 +396,7 @@ function build(): void {
   // all scrolling. The gutter and content then scroll together naturally.
   input.style.overflow = 'hidden';
   input.style.resize = 'none';
-  input.style.minHeight = '100%';
+  input.style.minHeight = 'calc(100% - 4px)';
 
   let debounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -406,6 +423,29 @@ function build(): void {
   });
 
   refreshInputGutter = syncInput;
+
+  // Tab / Shift+Tab indentation inside the textarea (instead of losing focus).
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const ta = input;
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    const INDENT = '  ';
+    if (e.shiftKey) {
+      // Outdent the current line: remove up to 2 leading spaces.
+      const before = ta.value.slice(0, s);
+      const lineStart = before.lastIndexOf('\n') + 1;
+      const lineHead = ta.value.slice(lineStart, lineStart + 2);
+      if (lineHead === INDENT) {
+        ta.setSelectionRange(lineStart, lineStart + 2);
+        document.execCommand('insertText', false, '');
+        const removed = s >= lineStart + 2 ? s - 2 : s - (s - lineStart);
+        ta.setSelectionRange(Math.max(lineStart, removed), Math.max(lineStart, removed + (en - s)));
+      }
+    } else {
+      document.execCommand('insertText', false, INDENT);
+    }
+  });
 
   const inputObserver = new ResizeObserver(() => syncInput());
   inputObserver.observe(input);
@@ -462,13 +502,94 @@ function build(): void {
   outputHeader.className = 'fv-pg-pane-header';
   outputHeader.textContent = t('结果', 'Result');
 
+  const outputMaxBtn = iconBtn(ICONS.maximize, t('全屏', 'Maximize'));
+  outputMaxBtn.style.cssText = 'padding:2px 6px;margin-left:auto;';
+  outputHeader.appendChild(outputMaxBtn);
+
   output = document.createElement('div');
   output.className = 'fv-pg-output';
   output.tabIndex = 0;
   outputPane.append(outputHeader, output);
 
-  split.append(inputPane, outputPane);
+  // Resizable divider between the two panes.
+  const paneDivider = document.createElement('div');
+  paneDivider.className = 'fv-pg-divider';
+
+  // Restore the saved split ratio (default 50/50).
+  let splitRatio = typeof state.splitRatio === 'number' ? state.splitRatio : 0.5;
+  function applySplitRatio(): void {
+    const clamped = Math.max(0.15, Math.min(0.85, splitRatio));
+    splitRatio = clamped;
+    split.style.gridTemplateColumns =
+      `${(clamped * 100).toFixed(2)}% 6px ${((1 - clamped) * 100).toFixed(2)}%`;
+  }
+  applySplitRatio();
+
+  let dragging = false;
+  paneDivider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const rect = split.getBoundingClientRect();
+    splitRatio = (e.clientX - rect.left) / rect.width;
+    applySplitRatio();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    state.splitRatio = splitRatio;
+    scheduleSave();
+  });
+
+  split.append(inputPane, paneDivider, outputPane);
   document.body.append(split);
+
+  // ── Maximize / restore single pane ──
+  // When maximizing we directly hide the other pane + divider via display:none
+  // and collapse the grid to a single column. ESC restores the split view.
+  function setMaximize(which: 'input' | 'output' | null): void {
+    inputMaxBtn.innerHTML = ICONS.maximize;
+    outputMaxBtn.innerHTML = ICONS.maximize;
+    // Reset visibility of all three elements first.
+    inputPane.style.display = '';
+    outputPane.style.display = '';
+    paneDivider.style.display = '';
+    if (which === 'input') {
+      outputPane.style.display = 'none';
+      paneDivider.style.display = 'none';
+      split.style.gridTemplateColumns = '1fr';
+      inputMaxBtn.innerHTML = ICONS.minimize;
+    } else if (which === 'output') {
+      inputPane.style.display = 'none';
+      paneDivider.style.display = 'none';
+      split.style.gridTemplateColumns = '1fr';
+      outputMaxBtn.innerHTML = ICONS.minimize;
+    } else {
+      // Restore the saved ratio.
+      applySplitRatio();
+    }
+  }
+  let currentMax: 'input' | 'output' | null = null;
+  inputMaxBtn.addEventListener('click', () => {
+    currentMax = currentMax === 'input' ? null : 'input';
+    setMaximize(currentMax);
+  });
+  outputMaxBtn.addEventListener('click', () => {
+    currentMax = currentMax === 'output' ? null : 'output';
+    setMaximize(currentMax);
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && currentMax) {
+      currentMax = null;
+      setMaximize(null);
+    }
+  });
 
   // Diff shell: separate layout (hidden by default).
   buildDiffShell();
@@ -515,6 +636,8 @@ function updateChips(): void {
 function switchMode(mode: Mode): void {
   currentMode = mode;
   state.mode = mode;
+  // Reset any single-pane maximize when changing modes.
+  split.classList.remove('fv-pg-max-input', 'fv-pg-max-output');
   if (mode !== 'diff' && mode !== 'memo') {
     input.value = (state.inputs && state.inputs[mode]) ?? '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -524,6 +647,7 @@ function switchMode(mode: Mode): void {
   scheduleSave();
   updateChips();
   runFormat();
+  updateCopyBtnState();
 }
 
 // ── Formatting pipeline ───────────────────────────────────────
@@ -534,6 +658,22 @@ let trLastText = '';
 let trLastResult = '';
 
 function currentOutputText(): string | null { return lastResultText; }
+
+// Enable/disable the copy button based on whether there is anything to copy
+// in the current mode. Called after every mode switch and format run.
+function updateCopyBtnState(): void {
+  if (!copyBtn) return;
+  let hasContent: boolean;
+  if (currentMode === 'memo') {
+    hasContent = !!currentMemo()?.content;
+  } else if (currentMode === 'diff') {
+    hasContent = false; // diff has no single "result" to copy
+  } else {
+    hasContent = lastResultText != null && lastResultText !== '';
+  }
+  copyBtn.disabled = !hasContent;
+  copyBtn.dataset.tip = hasContent ? t('复制结果', 'Copy result') : t('无内容可复制', 'Nothing to copy');
+}
 
 function runFormat(): void {
   toggleDiffShell(currentMode === 'diff');
@@ -576,6 +716,7 @@ function runFormat(): void {
   if (lastResultText !== null) {
     setOutputHeader(null, { lines: (lastResultText as string).split('\n').length, chars: (lastResultText as string).length });
   }
+  updateCopyBtnState();
 }
 
 // ── Renderers (output side) ───────────────────────────────────

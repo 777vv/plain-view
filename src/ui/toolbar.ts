@@ -45,17 +45,6 @@ export function createToolbar(
   const left = document.createElement('div');
   left.className = 'fv-toolbar-left';
 
-  const badge = document.createElement('span');
-  badge.className = 'fv-badge';
-  badge.textContent = format;
-
-  const fname = document.createElement('span');
-  fname.className = 'fv-filename';
-  fname.textContent = filename;
-  fname.title = filename;
-
-  left.append(badge, fname);
-
   const right = document.createElement('div');
   right.className = 'fv-toolbar-right';
 
