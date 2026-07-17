@@ -56,7 +56,10 @@ let outputHeader!: HTMLElement;
 let chips!: HTMLElement;
 let copyBtn!: HTMLButtonElement;
 let split!: HTMLElement;
+let inputScroll!: HTMLElement;
 let currentMode: Mode = 'json';
+// Markdown scroll-sync: maps source line index → output block offsetTop.
+let mdLineMap: { line: number; top: number }[] = [];
 
 let diffShell!: HTMLElement;
 let diffLeft!:  HTMLTextAreaElement;
@@ -374,7 +377,7 @@ function build(): void {
 
   // Gutter + textarea scroll together in a shared container so wrapping
   // doesn't break alignment.
-  const inputScroll = document.createElement('div');
+  inputScroll = document.createElement('div');
   inputScroll.style.cssText = 'flex:1;min-height:0;overflow:auto;';
 
   const inputNumbered = document.createElement('div');
@@ -590,6 +593,61 @@ function build(): void {
       setMaximize(null);
     }
   });
+
+  // Markdown scroll sync (input → output only), content-based via source-line
+  // mapping. Each rendered block carries a data-line attribute; we find which
+  // block the input's currently-visible line belongs to and scroll the output
+  // to it. Empty source lines map to the same block, so scrolling through
+  // blank lines keeps the output stable instead of jumping.
+  function markdownScrollSync(): void {
+    if (currentMode !== 'markdown' || mdLineMap.length === 0) return;
+
+    // Determine the visible source line precisely using the gutter's per-line
+    // divs. Each gutter row height already reflects the true rendered height
+    // (including soft-wrapped lines), so accumulating their offsetTops gives an
+    // exact line→pixel map — no fixed-lineHeight assumption, no accumulated
+    // drift on long content.
+    const gutterRows = inputGutterInner.children;
+    if (gutterRows.length === 0) return;
+    const scrollY = inputScroll.scrollTop;
+    // The gutter's own top padding aligns it with the textarea content, so
+    // offsetTop values are already relative to the scrollable content origin.
+    let visibleLine = 0;
+    for (let i = 0; i < gutterRows.length; i++) {
+      if ((gutterRows[i] as HTMLElement).offsetTop <= scrollY) visibleLine = i;
+      else break;
+    }
+
+    // Find the output blocks surrounding visibleLine for interpolation.
+    let prev = mdLineMap[0];
+    let next = mdLineMap[mdLineMap.length - 1];
+    for (const entry of mdLineMap) {
+      if (entry.line <= visibleLine) prev = entry;
+      if (entry.line > visibleLine) { next = entry; break; }
+    }
+    const span = next.line - prev.line;
+    if (span > 0) {
+      const ratio = Math.max(0, Math.min(1, (visibleLine - prev.line) / span));
+      output.scrollTop = Math.round(prev.top + ratio * (next.top - prev.top));
+    } else {
+      output.scrollTop = prev.top;
+    }
+  }
+  inputScroll.addEventListener('scroll', markdownScrollSync);
+
+  // Relay wheel events: if the input is at its boundary and the user keeps
+  // scrolling, forward the delta to the output pane.
+  inputScroll.addEventListener('wheel', (e) => {
+    if (currentMode !== 'markdown') return;
+    const atTop = inputScroll.scrollTop <= 0;
+    const atBottom = inputScroll.scrollTop >= inputScroll.scrollHeight - inputScroll.clientHeight;
+    const scrollingUp = e.deltaY < 0;
+    const scrollingDown = e.deltaY > 0;
+    if ((atTop && scrollingUp) || (atBottom && scrollingDown)) {
+      e.preventDefault();
+      output.scrollTop += e.deltaY;
+    }
+  }, { passive: false });
 
   // Diff shell: separate layout (hidden by default).
   buildDiffShell();
@@ -998,6 +1056,24 @@ function renderMarkdown(raw: string): void {
   root.innerHTML = mdToHtml(raw);
   output.appendChild(root);
   lastResultText = root.innerText;
+
+  // Build the source-line → output-scrollTop map for scroll sync.
+  // We compute the exact scrollTop value that would place each block at the
+  // top of the output viewport, using getBoundingClientRect so we don't depend
+  // on the offsetParent chain (which is unreliable with the centred layout).
+  // Reset scrollTop first so the rect math has a stable baseline.
+  output.scrollTop = 0;
+  const outRect = output.getBoundingClientRect();
+  // scrollTop=0 aligns the content-box top (after padding) with the viewport.
+  // getBoundingClientRect returns border-box positions, so subtract the
+  // output's padding-top to convert to a content-relative scrollTop value.
+  const outPadTop = parseFloat(getComputedStyle(output).paddingTop) || 0;
+  mdLineMap = Array.from(root.querySelectorAll<HTMLElement>('[data-line]')).map((el) => {
+    const line = parseInt(el.dataset.line || '0', 10);
+    const elRect = el.getBoundingClientRect();
+    const targetScrollTop = elRect.top - outRect.top - outPadTop;
+    return { line, top: Math.max(0, targetScrollTop) };
+  });
 }
 
 function renderSql(raw: string): void {
@@ -1171,6 +1247,18 @@ function renderTranslate(raw: string): void {
       trLastResult = translated;
       trLastText = text;
       lastResultText = translated;
+
+      // If the result is a single English word (zh→en direction), append its
+      // IPA phonetic from a free dictionary API. Failures are silent.
+      if (tl === 'en' && /^[a-zA-Z][a-zA-Z'-]*$/.test(translated.trim())) {
+        const phonetic = await fetchPhonetic(translated.trim());
+        if (phonetic) {
+          const phEl = document.createElement('div');
+          phEl.className = 'fv-pg-phonetic';
+          phEl.textContent = phonetic;
+          resultArea.appendChild(phEl);
+        }
+      }
     } catch {
       resultArea.innerHTML = '';
       resultArea.appendChild(buildErrorPlaceholder(
@@ -1214,6 +1302,25 @@ async function translateChunk(text: string, sl: string, tl: string): Promise<str
   const result = json.responseData?.translatedText;
   if (!result || result.includes('MYMEMORY WARNING')) throw new Error('quota');
   return result;
+}
+
+// Fetch IPA phonetic for a single English word from the free dictionary API.
+// Returns null on any failure (network, not found, non-word) — caller ignores.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchPhonetic(word: string): Promise<string | null> {
+  try {
+    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    const entry = data[0];
+    const phonetic: string | undefined =
+      entry.phonetic ?? entry.phonetics?.find((p: { text?: string }) => p.text)?.text;
+    return typeof phonetic === 'string' && phonetic ? phonetic : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── QR code generation ───────────────────────────────────────
@@ -1351,7 +1458,17 @@ type MemoFile = {
   id: string; title: string; content: string;
   updatedAt: number;
   createdAt: number;   // set once at creation; never mutated afterwards
+  icon?: number;       // index into MEMO_ICONS (0-based); assigned on create/import
 };
+
+// 20 preset icons cycled across new/imported memos. Users can change any
+// memo's icon via the picker.
+const MEMO_ICONS = ['📝','📌','⭐','💡','🔥','🚀','✅','🎯','📋','🔖','💼','🎨','📊','🔔','🌟','🏷️','💬','🔑','🧩','⚡'];
+// New/imported files always start on the first icon (📝). Users can still
+// change it per-file via the icon picker.
+function nextIcon(): number {
+  return 0;
+}
 
 let memoShell: HTMLElement | null = null;
 let memoFiles: MemoFile[] = [];
@@ -1362,6 +1479,7 @@ let memoDragId: string | null = null;
 let memoListEl: HTMLElement | null = null;
 let memoTitleEl: HTMLInputElement | null = null;
 let memoBodyEl: HTMLTextAreaElement | null = null;
+let memoIconEl: HTMLSpanElement | null = null;
 
 const MEMO_KEY = 'pg_memo_v2';
 const MEMO_CUR_KEY = 'pg_memo_cur';
@@ -1397,6 +1515,39 @@ function saveMemo(): void {
   }, 300);
 }
 
+// Icon picker popup — shows a grid of preset icons. Click one to set it on
+// the given memo, then close. Only one picker is open at a time.
+let iconPickerEl: HTMLElement | null = null;
+function openIconPicker(anchor: HTMLElement, f: MemoFile): void {
+  closeIconPicker();
+  const pop = document.createElement('div');
+  pop.className = 'fv-memo-icon-picker';
+  MEMO_ICONS.forEach((ic, idx) => {
+    const cell = document.createElement('button');
+    cell.className = 'fv-memo-icon-cell' + ((f.icon ?? 0) === idx ? ' sel' : '');
+    cell.type = 'button';
+    cell.textContent = ic;
+    cell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      f.icon = idx;
+      renderMemoList();
+      updateMemoEditorIcon(f);
+      saveMemo();
+      closeIconPicker();
+    });
+    pop.appendChild(cell);
+  });
+  // Position below the anchor.
+  const rect = anchor.getBoundingClientRect();
+  pop.style.left = rect.left + 'px';
+  pop.style.top = (rect.bottom + 4) + 'px';
+  document.body.appendChild(pop);
+  iconPickerEl = pop;
+}
+function closeIconPicker(): void {
+  if (iconPickerEl) { iconPickerEl.remove(); iconPickerEl = null; }
+}
+
 function renderMemoList(): void {
   if (!memoListEl) return;
   memoListEl.textContent = '';
@@ -1405,6 +1556,16 @@ function renderMemoList(): void {
     item.className = 'fv-memo-item' + (f.id === memoActiveId ? ' active' : '');
     item.draggable = true;
     item.dataset.id = f.id;
+
+    const icon = document.createElement('span');
+    icon.className = 'fv-memo-icon';
+    icon.textContent = MEMO_ICONS[f.icon ?? 0];
+    icon.title = t('点击修改图标', 'Click to change icon');
+    icon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openIconPicker(icon, f);
+    });
+    item.appendChild(icon);
 
     const title = document.createElement('span');
     title.className = 'title';
@@ -1474,6 +1635,14 @@ function loadMemoIntoEditor(f: MemoFile): void {
   if (!memoTitleEl || !memoBodyEl) return;
   memoTitleEl.value = f.title;
   memoBodyEl.value = f.content;
+  updateMemoEditorIcon(f);
+}
+
+// Update the editor title-bar icon to reflect the active memo's icon.
+function updateMemoEditorIcon(f: MemoFile): void {
+  if (!memoIconEl) return;
+  memoIconEl.textContent = MEMO_ICONS[f.icon ?? 0];
+  memoIconEl.onclick = (e) => { e.stopPropagation(); openIconPicker(memoIconEl!, f); };
 }
 
 function selectMemo(id: string): void {
@@ -1489,7 +1658,7 @@ function selectMemo(id: string): void {
 function createMemo(): void {
   flushEditorToMemo();
   const now = Date.now();
-  const f: MemoFile = { id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now };
+  const f: MemoFile = { id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now, icon: nextIcon() };
   memoFiles.unshift(f);
   memoActiveId = f.id;
   loadMemoIntoEditor(f);
@@ -1505,7 +1674,7 @@ function deleteMemo(id: string): void {
   // Keep at least one file around — recreate a blank one if we emptied the list.
   if (memoFiles.length === 0) {
     const now = Date.now();
-    const f: MemoFile = { id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now };
+    const f: MemoFile = { id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now, icon: 0 };
     memoFiles.push(f);
     memoActiveId = f.id;
     loadMemoIntoEditor(f);
@@ -1532,18 +1701,111 @@ function buildMemoShell(): void {
   title.textContent = t('备忘录', 'Memo');
   bar.appendChild(title);
 
+  const rightBtns = document.createElement('div');
+  rightBtns.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+  // ── Import button: read .txt files as new memos ──
+  const importBtn = document.createElement('button');
+  importBtn.className = 'fv-btn';
+  importBtn.dataset.tip = t('导入 TXT 文件', 'Import TXT files');
+  importBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14V6m3 3-3-3-3 3"/><path d="M2 2h12"/></svg>'
+    + '<span style="font-size:12px">' + t('导入', 'Import') + '</span>';
+  const importInput = document.createElement('input');
+  importInput.type = 'file';
+  importInput.accept = '.txt,text/plain';
+  importInput.multiple = true;
+  // Position off-screen (not display:none) so .click() reliably opens the
+  // file dialog in the extension environment.
+  importInput.style.cssText = 'position:absolute;left:-9999px;top:0;opacity:0;';
+  document.body.appendChild(importInput);
+  importInput.addEventListener('change', () => {
+    const files = importInput.files;
+    if (!files || files.length === 0) { return; }
+    let loaded = 0;
+    const total = files.length;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const content = reader.result as string;
+        const now = Date.now();
+        const f: MemoFile = {
+          id: memoUid(),
+          title: file.name.replace(/\.txt$/i, ''),
+          content,
+          updatedAt: now,
+          createdAt: now,
+          icon: nextIcon(),
+        };
+        memoFiles.unshift(f);
+        loaded++;
+        if (loaded === total) {
+          // Select the first imported file and persist immediately (no debounce,
+          // no flushEditorToMemo — we write memoFiles directly).
+          memoActiveId = memoFiles[0].id;
+          loadMemoIntoEditor(memoFiles[0]);
+          renderMemoList();
+          chrome.storage.local.set({
+            [MEMO_KEY]: memoFiles,
+            [MEMO_CUR_KEY]: memoActiveId,
+          }).catch(() => { /* ignore */ });
+        }
+      };
+      reader.onerror = () => { loaded++; };
+      reader.readAsText(file);
+    });
+    importInput.value = ''; // allow re-importing the same file
+  });
+  importBtn.addEventListener('click', () => importInput.click());
+  rightBtns.appendChild(importBtn);
+
+  // ── Export button with dropdown: current / all ──
+  const exportWrap = document.createElement('div');
+  exportWrap.style.cssText = 'position:relative;';
+
   const exportBtn = document.createElement('button');
   exportBtn.className = 'fv-btn';
-  exportBtn.dataset.tip = t('导出当前 TXT', 'Export current as TXT');
   exportBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m-3-3 3 3 3-3"/><path d="M2 10v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3"/></svg>'
     + '<span style="font-size:12px">' + t('导出', 'Export') + '</span>';
-  exportBtn.addEventListener('click', () => {
+  exportWrap.appendChild(exportBtn);
+
+  const exportDrop = document.createElement('div');
+  exportDrop.className = 'fv-memo-export-drop';
+  exportDrop.style.display = 'none';
+  function expItem(label: string, fn: () => void): HTMLElement {
+    const it = document.createElement('div');
+    it.className = 'fv-memo-export-item';
+    it.textContent = label;
+    it.addEventListener('click', () => { fn(); exportDrop.style.display = 'none'; });
+    return it;
+  }
+  exportDrop.appendChild(expItem(t('导出当前文档', 'Export current'), () => {
     const f = currentMemo();
     if (!f) return;
     const name = (f.title || 'memo').replace(/[\\/:*?"<>|]/g, '_').trim() || 'memo';
     downloadText(name + '.txt', f.content);
+  }));
+  exportDrop.appendChild(expItem(t('导出所有文档', 'Export all'), () => {
+    if (memoFiles.length === 0) return;
+    // Download each memo as a separate .txt file. A small stagger between
+    // downloads avoids the browser blocking rapid successive downloads.
+    memoFiles.forEach((f, idx) => {
+      const name = (f.title || 'memo').replace(/[\\/:*?"<>|]/g, '_').trim() || 'memo';
+      setTimeout(() => downloadText(name + '.txt', f.content), idx * 200);
+    });
+  }));
+  exportWrap.appendChild(exportDrop);
+
+  exportBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    exportDrop.style.display = exportDrop.style.display === 'none' ? '' : 'none';
   });
-  bar.appendChild(exportBtn);
+  document.addEventListener('click', (e) => {
+    if (exportDrop.style.display === 'none') return;
+    if (!exportWrap.contains(e.target as Node)) exportDrop.style.display = 'none';
+  });
+
+  rightBtns.appendChild(exportWrap);
+  bar.appendChild(rightBtns);
   memoShell.appendChild(bar);
 
   const body = document.createElement('div');
@@ -1572,6 +1834,14 @@ function buildMemoShell(): void {
   const editor = document.createElement('div');
   editor.className = 'fv-memo-editor';
 
+  const editorIcon = document.createElement('span');
+  editorIcon.className = 'fv-memo-icon fv-memo-editor-icon';
+  editorIcon.title = t('点击修改图标', 'Click to change icon');
+  memoIconEl = editorIcon;
+
+  const titleBar = document.createElement('div');
+  titleBar.className = 'fv-memo-title-bar';
+
   const titleInput = document.createElement('input');
   titleInput.type = 'text';
   titleInput.className = 'fv-memo-title';
@@ -1583,19 +1853,44 @@ function buildMemoShell(): void {
     saveMemo();
   });
   memoTitleEl = titleInput;
+  titleBar.append(editorIcon, titleInput);
 
   const bodyTa = document.createElement('textarea');
   bodyTa.className = 'fv-memo-body';
   bodyTa.spellcheck = false;
   bodyTa.placeholder = t('在此输入备忘内容…', 'Type your notes here…');
   bodyTa.addEventListener('input', () => { saveMemo(); });
+  // Tab / Shift+Tab indentation (same behaviour as the main input pane).
+  bodyTa.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const ta = bodyTa;
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    const INDENT = '  ';
+    if (e.shiftKey) {
+      const before = ta.value.slice(0, s);
+      const lineStart = before.lastIndexOf('\n') + 1;
+      if (ta.value.slice(lineStart, lineStart + 2) === INDENT) {
+        ta.setSelectionRange(lineStart, lineStart + 2);
+        document.execCommand('insertText', false, '');
+      }
+    } else {
+      document.execCommand('insertText', false, INDENT);
+    }
+  });
   memoBodyEl = bodyTa;
 
-  editor.append(titleInput, bodyTa);
+  editor.append(titleBar, bodyTa);
 
   body.append(sidebar, divider, editor);
   memoShell.appendChild(body);
   document.body.appendChild(memoShell);
+
+  // Close the icon picker on outside click.
+  document.addEventListener('click', (e) => {
+    if (!iconPickerEl) return;
+    if (!iconPickerEl.contains(e.target as Node)) closeIconPicker();
+  });
 
   // Load saved files (or seed a default one), then activate.
   chrome.storage.local.get([MEMO_KEY, MEMO_CUR_KEY]).then((data) => {
@@ -1603,7 +1898,7 @@ function buildMemoShell(): void {
     const now = Date.now();
     memoFiles = Array.isArray(files) && files.length > 0
       ? files
-      : [{ id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now }];
+      : [{ id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now, icon: 0 }];
     // Backfill createdAt on legacy records (pre-dating the sort feature).
     for (const f of memoFiles) {
       if (typeof f.createdAt !== 'number') f.createdAt = f.updatedAt;
@@ -1622,12 +1917,28 @@ function buildMemoShell(): void {
 }
 
 function downloadText(filename: string, content: string): void {
-  const blob = new Blob([content], { type: 'text/plain' });
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  // Prefer the chrome.downloads API — it forces a download without opening
+  // the file and respects the filename exactly. Fall back to <a download>
+  // when running outside the extension context.
+  if (typeof chrome !== 'undefined' && chrome.downloads) {
+    chrome.downloads.download({ url, filename, saveAs: false })
+      .catch(() => fallbackAnchorDownload(url, filename));
+  } else {
+    fallbackAnchorDownload(url, filename);
+  }
+}
+
+function fallbackAnchorDownload(url: string, filename: string): void {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  a.href = url;
   a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function toggleMemoShell(on: boolean): void {

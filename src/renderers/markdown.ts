@@ -45,10 +45,17 @@ export function render(raw: string): void {
 export function mdToHtml(md: string): string {
   const lines = md.replace(/\r\n/g, '\n').split('\n');
   const out: string[] = [];
+
+  // Inject a data-line attribute (the 0-based source line index) into the
+  // first opening tag of an HTML chunk. Used for scroll-sync mapping.
+  const withLine = (html: string, line: number): string =>
+    html.replace(/^<(\w+)/, `<$1 data-line="${line}"`);
+
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
+    const startLine = i;
 
     // Fenced code block
     const fenceMatch = line.match(/^(`{3,}|~{3,})([\w-]*)/);
@@ -62,7 +69,7 @@ export function mdToHtml(md: string): string {
         i++;
       }
       i++; // closing fence
-      out.push(`<pre><code class="language-${escHtml(lang)}">${escHtml(codeLines.join('\n'))}</code></pre>`);
+      out.push(withLine(`<pre><code class="language-${escHtml(lang)}">${escHtml(codeLines.join('\n'))}</code></pre>`, startLine));
       continue;
     }
 
@@ -72,13 +79,13 @@ export function mdToHtml(md: string): string {
       const level = hMatch[1].length;
       const text  = inline(hMatch[2]);
       const slug  = hMatch[2].toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
-      out.push(`<h${level} id="${slug}">${text}</h${level}>`);
+      out.push(withLine(`<h${level} id="${slug}">${text}</h${level}>`, startLine));
       i++; continue;
     }
 
     // Horizontal rule
     if (/^[-*_]{3,}\s*$/.test(line)) {
-      out.push('<hr>');
+      out.push(withLine('<hr>', startLine));
       i++; continue;
     }
 
@@ -89,14 +96,19 @@ export function mdToHtml(md: string): string {
         bqLines.push(lines[i].replace(/^>\s?/, ''));
         i++;
       }
-      out.push(`<blockquote>${mdToHtml(bqLines.join('\n'))}</blockquote>`);
+      // Recurse, then shift inner data-line values by the blockquote's source
+      // offset so they reference the original line numbers.
+      const inner = mdToHtml(bqLines.join('\n'));
+      const shifted = inner.replace(/data-line="(\d+)"/g, (_m, n: string) =>
+        `data-line="${startLine + parseInt(n, 10)}"`);
+      out.push(withLine(`<blockquote>${shifted}</blockquote>`, startLine));
       continue;
     }
 
     // Ordered / unordered list
     if (/^(\s*)([-*+]|\d+\.)\s/.test(line)) {
       const { html, nextIndex } = parseList(lines, i);
-      out.push(html);
+      out.push(withLine(html, startLine));
       i = nextIndex;
       continue;
     }
@@ -105,7 +117,7 @@ export function mdToHtml(md: string): string {
     if (line.includes('|')) {
       const tableResult = parseTable(lines, i);
       if (tableResult) {
-        out.push(tableResult.html);
+        out.push(withLine(tableResult.html, startLine));
         i = tableResult.nextIndex;
         continue;
       }
@@ -113,7 +125,7 @@ export function mdToHtml(md: string): string {
 
     // Empty line → paragraph break
     if (line.trim() === '') {
-      out.push('<p></p>');
+      out.push(withLine('<p></p>', startLine));
       i++; continue;
     }
 
@@ -125,7 +137,7 @@ export function mdToHtml(md: string): string {
       paraLines.push(lines[i]);
       i++;
     }
-    if (paraLines.length) out.push(`<p>${inline(paraLines.join('\n'))}</p>`);
+    if (paraLines.length) out.push(withLine(`<p>${inline(paraLines.join('\n'))}</p>`, startLine));
   }
 
   return out.join('\n');
