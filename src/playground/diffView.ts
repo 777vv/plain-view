@@ -73,7 +73,16 @@ export function renderDiffPanels(options: { onChange: () => void }): DiffPanelsA
     const c      = countStats(ops);
     const hunks  = groupHunks(ops);
 
-    stats.textContent = `+${c.added} / -${c.removed} / =${c.same}`;
+    // C5: render the +/-/= counts as coloured badges so the most important
+    // numbers are also the most visible. Built once per refresh.
+    stats.textContent = '';
+    const mkStat = (n: number, sign: string, cls: 'add' | 'del' | 'eq') => {
+      const s = document.createElement('span');
+      s.className = 'fv-diff-stat fv-diff-stat-' + cls;
+      s.textContent = sign + n;
+      return s;
+    };
+    stats.append(mkStat(c.added, '+', 'add'), mkStat(c.removed, '-', 'del'), mkStat(c.same, '=', 'eq'));
 
     // Per-side row colors & gutter
     paintSide(leftSide,  ops, 'left',  a.length);

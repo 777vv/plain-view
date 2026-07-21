@@ -171,15 +171,37 @@ function rebuildChips(): void {
 // Rebuild chips when the popup toggles features
 chrome.storage.onChanged.addListener((changes) => {
   if (changes['disabledFormats']) rebuildChips();
+  // C4: cross-tab sync. When another tab writes playground state or memo
+  // data, merge it in. For state.inputs we only take drafts of modes that
+  // aren't currently active (so we never clobber what the user is typing
+  // here). For memos we skip the reload entirely while a memo editor field
+  // has focus — the user's in-progress edit wins locally; the other tab's
+  // write will land on next blur/reload (accepted trade-off of "live").
+  if (changes[STORAGE_KEY] && state) {
+    const incoming = changes[STORAGE_KEY].newValue as StoredState | undefined;
+    if (incoming && incoming.inputs) {
+      if (!state.inputs) state.inputs = {};
+      for (const key of Object.keys(incoming.inputs) as SingleMode[]) {
+        if (key !== currentMode && incoming.inputs[key] !== undefined) {
+          state.inputs[key] = incoming.inputs[key];
+        }
+      }
+    }
+  }
+  if (changes[MEMO_KEY] && memoBodyEl) {
+    // Don't interrupt an active edit — reload only when the editor is idle.
+    const editing = document.activeElement === memoBodyEl || document.activeElement === memoTitleEl;
+    if (!editing) reloadMemoFromStorage();
+  }
 });
 
 // Mode-specific input placeholder. Shown on the left-side textarea.
 const PLACEHOLDERS: Record<SingleMode, { zh: string; en: string }> = {
   json:      { zh: '在此粘贴或拖入 JSON 文件,例如 {"a":1}',       en: 'Paste or drop a JSON file, e.g. {"a":1}' },
-  markdown:  { zh: '在此粘贴或拖入 Markdown 文件',                 en: 'Paste or drop a Markdown file' },
-  sql:       { zh: '在此粘贴或拖入 SQL 文件',                      en: 'Paste or drop a SQL file' },
+  markdown:  { zh: '在此粘贴或拖入 Markdown,例如 # 标题\n- 列表',  en: 'Paste Markdown, e.g. # Title\n- list item' },
+  sql:       { zh: '在此粘贴或拖入 SQL,例如 SELECT * FROM users',  en: 'Paste SQL, e.g. SELECT * FROM users' },
   base64:    { zh: '在这里粘贴 Base64 / 文本',                     en: 'Paste Base64 text (or plain text to encode)' },
-  url:       { zh: '在这里粘贴 URL',                               en: 'Paste a URL here' },
+  url:       { zh: '在这里粘贴 URL,例如 https://example.com/p?a=1',en: 'Paste a URL, e.g. https://example.com/p?a=1' },
   qr:        { zh: '在这里输入要生成二维码的文本',                  en: 'Enter text to encode as a QR code' },
   translate: { zh: '在这里输入要翻译的文本',                       en: 'Enter text to translate' },
 };
@@ -453,12 +475,18 @@ function build(): void {
   const inputObserver = new ResizeObserver(() => syncInput());
   inputObserver.observe(input);
 
-  // Drag-and-drop file → load content + auto-switch mode
-  input.addEventListener('dragover', (e) => { e.preventDefault(); });
+  // Drag-and-drop file → load content + auto-switch mode.
+  // B7: only intercept when a file is being dropped; plain-text drags fall
+  // through to the browser's default insertion so selected text isn't swallowed.
+  input.addEventListener('dragover', (e) => {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      e.preventDefault();
+    }
+  });
   input.addEventListener('drop', (e) => {
-    e.preventDefault();
     const file = e.dataTransfer?.files[0];
-    if (!file) return;
+    if (!file) return; // let the browser insert dragged text natively
+    e.preventDefault();
     const ext = file.name.split('.').pop()?.toLowerCase();
     const extToMode: Record<string, Mode> = {
       json: 'json', md: 'markdown', markdown: 'markdown', sql: 'sql',
@@ -520,16 +548,25 @@ function build(): void {
 
   // Restore the saved split ratio (default 50/50).
   let splitRatio = typeof state.splitRatio === 'number' ? state.splitRatio : 0.5;
+  // B12: below 900px the layout stacks vertically via a media query with
+  // !important; in that range we leave gridTemplateColumns alone so the
+  // stacked rows take over.
+  const isNarrow = () => window.innerWidth <= 900;
   function applySplitRatio(): void {
+    if (isNarrow()) return;
     const clamped = Math.max(0.15, Math.min(0.85, splitRatio));
     splitRatio = clamped;
     split.style.gridTemplateColumns =
       `${(clamped * 100).toFixed(2)}% 6px ${((1 - clamped) * 100).toFixed(2)}%`;
   }
   applySplitRatio();
+  // Re-apply when crossing the breakpoint so widening the window restores
+  // the saved ratio instead of staying stacked.
+  window.addEventListener('resize', applySplitRatio);
 
   let dragging = false;
   paneDivider.addEventListener('mousedown', (e) => {
+    if (isNarrow()) return; // vertical layout — divider drag is meaningless
     e.preventDefault();
     dragging = true;
     document.body.style.cursor = 'col-resize';
@@ -552,6 +589,43 @@ function build(): void {
 
   split.append(inputPane, paneDivider, outputPane);
   document.body.append(split);
+
+  // ── B1: full-pane drop zone for file import ──────────────────
+  // A semi-transparent overlay announces "drop to import" while a file is
+  // being dragged over the workspace. A counter tolerates dragenter/leave
+  // bubbling from child elements so the overlay doesn't flicker.
+  const dropzone = document.createElement('div');
+  dropzone.className = 'fv-pg-dropzone';
+  dropzone.innerHTML = '<div class="fv-pg-dropzone-inner">'
+    + '<div class="fv-pg-dropzone-icon">📄</div>'
+    + '<div class="fv-pg-dropzone-text">' + t('松开以导入文件', 'Drop file to import') + '</div>'
+    + '</div>';
+  split.appendChild(dropzone);
+  let dragDepth = 0;
+  split.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer || e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    dragDepth++;
+    dropzone.classList.add('active');
+  });
+  split.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer || e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  split.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropzone.classList.remove('active');
+  });
+  split.addEventListener('drop', (e) => {
+    if (!e.dataTransfer || e.dataTransfer.files.length === 0) return;
+    // The textarea's own drop handler will read the file; here we just clear
+    // the overlay. preventDefault on split stops the browser from navigating
+    // to the dropped file.
+    e.preventDefault();
+    dragDepth = 0;
+    dropzone.classList.remove('active');
+  });
 
   // ── Maximize / restore single pane ──
   // When maximizing we directly hide the other pane + divider via display:none
@@ -576,6 +650,14 @@ function build(): void {
     } else {
       // Restore the saved ratio.
       applySplitRatio();
+    }
+    // B4: fade the pane that takes over so the swap isn't a hard cut.
+    // The target pane is the one still displayed; briefly drop it to 0
+    // and let the CSS transition (var(--fv-base)) bring it back.
+    const target = which === 'input' ? inputPane : which === 'output' ? outputPane : null;
+    if (target) {
+      target.style.opacity = '0';
+      requestAnimationFrame(() => { target.style.opacity = '1'; });
     }
   }
   let currentMax: 'input' | 'output' | null = null;
@@ -714,6 +796,10 @@ let lastResultText: string | null = null;
 // Translation cache
 let trLastText = '';
 let trLastResult = '';
+// B6: inflight guard — only one translate request at a time. A new click
+// aborts the previous fetch and disables both buttons until it settles.
+let trBusy = false;
+let trAbort: AbortController | null = null;
 
 function currentOutputText(): string | null { return lastResultText; }
 
@@ -1222,7 +1308,16 @@ function renderTranslate(raw: string): void {
 
   async function doTranslate(sl: string, tl: string): Promise<void> {
     const text = raw.trim();
-    if (!text) return;
+    if (!text || trBusy) return;
+
+    // B6: cancel any in-flight request and take the lock.
+    trAbort?.abort();
+    trAbort = new AbortController();
+    const mySignal = trAbort.signal;
+    trBusy = true;
+    const setBtnsDisabled = (disabled: boolean) =>
+      btnRow.querySelectorAll('button').forEach((b) => { (b as HTMLButtonElement).disabled = disabled; });
+    setBtnsDisabled(true);
 
     resultArea.innerHTML = '';
     const loading = document.createElement('div');
@@ -1237,7 +1332,7 @@ function renderTranslate(raw: string): void {
     resultArea.appendChild(loading);
 
     try {
-      const translated = await translateChunk(text, sl, tl);
+      const translated = await translateChunk(text, sl, tl, mySignal);
       const pre = document.createElement('pre');
       pre.className = 'fv-pg-sec-body';
       pre.style.whiteSpace = 'pre-wrap';
@@ -1259,19 +1354,28 @@ function renderTranslate(raw: string): void {
           resultArea.appendChild(phEl);
         }
       }
-    } catch {
+    } catch (err) {
+      // Aborted by a newer request — leave the new request's loading state
+      // in place; don't show an error.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       resultArea.innerHTML = '';
       resultArea.appendChild(buildErrorPlaceholder(
         t('翻译失败', 'Translation failed'),
         t('请检查网络连接后重试', 'Check your network and try again'),
       ));
+    } finally {
+      // Only release the lock if this request is still the active one
+      // (a newer request may have already replaced trAbort).
+      if (trAbort === null || trAbort.signal === mySignal) {
+        trBusy = false;
+        setBtnsDisabled(false);
+      }
     }
   }
 
   function mkTrBtn(label: string, sl: string, tl: string): HTMLButtonElement {
     const b = document.createElement('button');
-    b.className = 'fv-btn';
-    b.style.cssText = 'font-size:13px;padding:5px 14px;border:1px solid var(--fv-focus);color:#fff;background:#d81b60;border-radius:6px;';
+    b.className = 'fv-pg-primary-btn fv-pg-primary-btn--sm';
     b.textContent = label;
     b.addEventListener('click', () => doTranslate(sl, tl));
     return b;
@@ -1293,10 +1397,16 @@ function renderTranslate(raw: string): void {
   lastResultText = raw;
 }
 
-async function translateChunk(text: string, sl: string, tl: string): Promise<string> {
+async function translateChunk(text: string, sl: string, tl: string, signal?: AbortSignal): Promise<string> {
   const pair = `${sl}|${tl}`;
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${pair}`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  // Combine the caller's cancel signal (B6 inflight abort) with an 8s
+  // timeout. AbortSignal.any is supported in Chrome 116+.
+  const timeoutSignal = AbortSignal.timeout(8000);
+  const combined = signal && 'any' in AbortSignal
+    ? (AbortSignal as unknown as { any: (s: AbortSignal[]) => AbortSignal }).any([signal, timeoutSignal])
+    : timeoutSignal;
+  const resp = await fetch(url, { signal: combined });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const json = await resp.json();
   const result = json.responseData?.translatedText;
@@ -1483,6 +1593,8 @@ let memoIconEl: HTMLSpanElement | null = null;
 
 const MEMO_KEY = 'pg_memo_v2';
 const MEMO_CUR_KEY = 'pg_memo_cur';
+// Whether the file-list sidebar is collapsed (persisted across sessions).
+const MEMO_COLLAPSED_KEY = 'pg_memo_collapsed';
 // Legacy keys from the old two-pane layout — cleared on first load of v2.
 const MEMO_LEGACY_KEYS = ['pg_memo_1', 'pg_memo_2'];
 
@@ -1521,7 +1633,7 @@ let iconPickerEl: HTMLElement | null = null;
 function openIconPicker(anchor: HTMLElement, f: MemoFile): void {
   closeIconPicker();
   const pop = document.createElement('div');
-  pop.className = 'fv-memo-icon-picker';
+  pop.className = 'fv-memo-icon-picker fv-overlay-in';
   MEMO_ICONS.forEach((ic, idx) => {
     const cell = document.createElement('button');
     cell.className = 'fv-memo-icon-cell' + ((f.icon ?? 0) === idx ? ' sel' : '');
@@ -1638,6 +1750,43 @@ function loadMemoIntoEditor(f: MemoFile): void {
   updateMemoEditorIcon(f);
 }
 
+// C4: reload memo data from storage — used for cross-tab live sync. Reads
+// the files + active id, backfills legacy createdAt, and refreshes the list
+// + editor. Called on first load and whenever another tab writes memo data.
+function reloadMemoFromStorage(data?: Record<string, unknown>): void {
+  void Promise.resolve(
+    data ?? chrome.storage.local.get([MEMO_KEY, MEMO_CUR_KEY])
+  ).then((d) => {
+    const got = (d ?? {}) as Record<string, unknown>;
+    const files = got[MEMO_KEY] as MemoFile[] | undefined;
+    const now = Date.now();
+    memoFiles = Array.isArray(files) && files.length > 0
+      ? files
+      : [{ id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now, icon: 0 }];
+    for (const f of memoFiles) {
+      if (typeof f.createdAt !== 'number') f.createdAt = f.updatedAt;
+    }
+    const prevActive = memoActiveId;
+    memoActiveId = (got[MEMO_CUR_KEY] as string | undefined) ?? memoFiles[0].id;
+    if (!memoFiles.some((f) => f.id === memoActiveId)) memoActiveId = memoFiles[0].id;
+    const active = memoFiles.find((f) => f.id === memoActiveId) ?? memoFiles[0];
+    memoActiveId = active.id;
+    // Only push the editor content into the DOM if the active memo changed
+    // or this is the first load — otherwise preserve scroll/cursor in the
+    // currently-open memo by refreshing from memoFiles (which may have been
+    // updated by the other tab).
+    if (prevActive !== memoActiveId || !memoTitleEl || memoTitleEl.value === '') {
+      loadMemoIntoEditor(active);
+    } else {
+      // Same memo still active: refresh its content from the freshly-loaded
+      // file list (the other tab may have edited it).
+      loadMemoIntoEditor(active);
+    }
+    renderMemoList();
+    if (memoFiles.length === 0 || !files || files.length === 0) saveMemo();
+  }).catch(() => { /* ignore */ });
+}
+
 // Update the editor title-bar icon to reflect the active memo's icon.
 function updateMemoEditorIcon(f: MemoFile): void {
   if (!memoIconEl) return;
@@ -1699,7 +1848,24 @@ function buildMemoShell(): void {
   const title = document.createElement('span');
   title.style.cssText = 'font-size:13px;font-weight:700;letter-spacing:.05em;color:var(--fv-text);';
   title.textContent = t('备忘录', 'Memo');
-  bar.appendChild(title);
+
+  // Collapse/expand the file-list sidebar. Placed in the toolbar (not on the
+  // divider) so it never overlaps the editor content and stays visible when
+  // the sidebar is collapsed.
+  const collapseBtn = document.createElement('button');
+  collapseBtn.type = 'button';
+  collapseBtn.className = 'fv-btn fv-memo-collapse-btn';
+  collapseBtn.dataset.tip = t('收起文件列表', 'Collapse file list');
+  collapseBtn.setAttribute('aria-label', t('收起文件列表', 'Collapse file list'));
+  collapseBtn.setAttribute('aria-pressed', 'false');
+  // Standard sidebar-panel icon (panel + left vertical bar) — same glyph for
+  // both states; the pressed state is conveyed via colour + tooltip.
+  collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1"/><line x1="6" y1="3" x2="6" y2="13"/></svg>';
+
+  const leftBtns = document.createElement('div');
+  leftBtns.style.cssText = 'display:flex;align-items:center;gap:8px;';
+  leftBtns.append(title, collapseBtn);
+  bar.appendChild(leftBtns);
 
   const rightBtns = document.createElement('div');
   rightBtns.style.cssText = 'display:flex;align-items:center;gap:8px;';
@@ -1771,12 +1937,25 @@ function buildMemoShell(): void {
   const exportDrop = document.createElement('div');
   exportDrop.className = 'fv-memo-export-drop';
   exportDrop.style.display = 'none';
-  function expItem(label: string, fn: () => void): HTMLElement {
-    const it = document.createElement('div');
+  // C8: menu items are <button> so they're keyboard-reachable (Tab + Enter).
+  function expItem(label: string, fn: () => void): HTMLButtonElement {
+    const it = document.createElement('button');
+    it.type = 'button';
     it.className = 'fv-memo-export-item';
     it.textContent = label;
-    it.addEventListener('click', () => { fn(); exportDrop.style.display = 'none'; });
+    it.addEventListener('click', () => { fn(); hideExportDrop(); });
     return it;
+  }
+  function showExportDrop(): void {
+    exportDrop.style.display = '';
+    exportDrop.classList.remove('fv-overlay-in');
+    // re-trigger the animation on each open
+    void exportDrop.offsetWidth;
+    exportDrop.classList.add('fv-overlay-in');
+  }
+  function hideExportDrop(): void {
+    exportDrop.style.display = 'none';
+    exportDrop.classList.remove('fv-overlay-in');
   }
   exportDrop.appendChild(expItem(t('导出当前文档', 'Export current'), () => {
     const f = currentMemo();
@@ -1797,11 +1976,11 @@ function buildMemoShell(): void {
 
   exportBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    exportDrop.style.display = exportDrop.style.display === 'none' ? '' : 'none';
+    if (exportDrop.style.display === 'none') showExportDrop(); else hideExportDrop();
   });
   document.addEventListener('click', (e) => {
     if (exportDrop.style.display === 'none') return;
-    if (!exportWrap.contains(e.target as Node)) exportDrop.style.display = 'none';
+    if (!exportWrap.contains(e.target as Node)) hideExportDrop();
   });
 
   rightBtns.appendChild(exportWrap);
@@ -1809,9 +1988,10 @@ function buildMemoShell(): void {
   memoShell.appendChild(bar);
 
   const body = document.createElement('div');
-  body.style.cssText = 'flex:1;display:grid;grid-template-columns:240px 4px 1fr;grid-template-rows:1fr;min-height:0;';
+  body.className = 'fv-memo-body-grid';
+  body.style.cssText = 'flex:1;display:flex;min-height:0;';
 
-  // ── Left sidebar: new-file button + scrollable file list ──
+  // ── Left sidebar: new-file button + file list ──
   const sidebar = document.createElement('div');
   sidebar.className = 'fv-memo-sidebar';
 
@@ -1827,8 +2007,10 @@ function buildMemoShell(): void {
   memoListEl = list;
   sidebar.appendChild(list);
 
+  // Divider between sidebar and editor — pure separator (the collapse toggle
+  // lives in the toolbar above, so the divider stays out of the content area).
   const divider = document.createElement('div');
-  divider.style.cssText = 'background:var(--fv-border);';
+  divider.className = 'fv-memo-divider';
 
   // ── Right editor: title input + body textarea (no line-number gutter) ──
   const editor = document.createElement('div');
@@ -1886,30 +2068,39 @@ function buildMemoShell(): void {
   memoShell.appendChild(body);
   document.body.appendChild(memoShell);
 
+  // ── Sidebar collapse/expand toggle ──────────────────────────
+  // The sidebar width is transitioned via CSS (.fv-memo-sidebar.collapsed),
+  // so toggling the class animates the collapse. State is persisted so the
+  // sidebar stays collapsed across sessions.
+  let memoCollapsed = false;
+  function applyMemoCollapsed(): void {
+    sidebar.classList.toggle('collapsed', memoCollapsed);
+    divider.classList.toggle('collapsed', memoCollapsed);
+    const tip = memoCollapsed ? t('展开文件列表', 'Expand file list') : t('收起文件列表', 'Collapse file list');
+    collapseBtn.dataset.tip = tip;
+    collapseBtn.setAttribute('aria-label', tip);
+    collapseBtn.setAttribute('aria-pressed', String(memoCollapsed));
+    chrome.storage.local.set({ [MEMO_COLLAPSED_KEY]: memoCollapsed }).catch(() => { /* ignore */ });
+  }
+  collapseBtn.addEventListener('click', () => {
+    memoCollapsed = !memoCollapsed;
+    applyMemoCollapsed();
+  });
+
   // Close the icon picker on outside click.
   document.addEventListener('click', (e) => {
     if (!iconPickerEl) return;
     if (!iconPickerEl.contains(e.target as Node)) closeIconPicker();
   });
 
-  // Load saved files (or seed a default one), then activate.
-  chrome.storage.local.get([MEMO_KEY, MEMO_CUR_KEY]).then((data) => {
-    const files = data[MEMO_KEY] as MemoFile[] | undefined;
-    const now = Date.now();
-    memoFiles = Array.isArray(files) && files.length > 0
-      ? files
-      : [{ id: memoUid(), title: '', content: '', updatedAt: now, createdAt: now, icon: 0 }];
-    // Backfill createdAt on legacy records (pre-dating the sort feature).
-    for (const f of memoFiles) {
-      if (typeof f.createdAt !== 'number') f.createdAt = f.updatedAt;
+  // Load saved files (or seed a default one), then activate. Also restore the
+  // sidebar collapse state.
+  chrome.storage.local.get([MEMO_KEY, MEMO_CUR_KEY, MEMO_COLLAPSED_KEY]).then((data) => {
+    reloadMemoFromStorage(data);
+    if (data[MEMO_COLLAPSED_KEY] === true) {
+      memoCollapsed = true;
+      applyMemoCollapsed();
     }
-    memoActiveId = (data[MEMO_CUR_KEY] as string | undefined) ?? memoFiles[0].id;
-    if (!memoFiles.some((f) => f.id === memoActiveId)) memoActiveId = memoFiles[0].id;
-    const active = memoFiles.find((f) => f.id === memoActiveId) ?? memoFiles[0];
-    memoActiveId = active.id;
-    loadMemoIntoEditor(active);
-    renderMemoList();
-    if (memoFiles.length === 0 || !files || files.length === 0) saveMemo();
   }).catch(() => { /* ignore */ });
 
   // Clear legacy two-pane data on first run of v2.

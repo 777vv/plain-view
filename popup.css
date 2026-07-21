@@ -77,28 +77,31 @@ body {
 .popup-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .popup-section:last-child { border-bottom: none; }
 
-/* Primary action button — gradient fill + depth */
+/* Primary action button — gradient fill + depth.
+ * Visually aligned with the main app's `.fv-pg-primary-btn` (B9): same
+ * gradient direction, radius, and shadow depth. Popup keeps its own token
+ * namespace since popup.html doesn't load base.css. */
 .popup-action {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 9px 14px;
+  padding: 10px 16px;
   border: none;
-  border-radius: var(--radius);
+  border-radius: 8px;
   background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
   color: #fff;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(216,27,96,.3);
-  transition: transform .08s, box-shadow .15s, filter .15s;
+  box-shadow: 0 2px 6px rgba(216,27,96,.35), 0 0 0 1px rgba(216,27,96,.25);
+  transition: transform .1s ease, box-shadow .18s ease, filter .18s ease;
 }
 .popup-action:hover {
   filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(216,27,96,.4);
+  box-shadow: 0 4px 12px rgba(216,27,96,.45), 0 0 0 1px rgba(216,27,96,.35);
 }
 .popup-action:active { transform: translateY(0); }
 .popup-action-arrow { font-size: 14px; }
@@ -117,8 +120,22 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 0;
+  padding: 6px 10px;
+  margin: 0 -10px;
+  border-radius: 6px;
+  transition: background .15s ease;
 }
+.format-row:hover {
+  background: var(--accent-bg);
+}
+/* Faint separator between rows — only between items, not above the first.
+ * Kept subtle (≈35% border colour) so it groups without dominating. */
+.format-row + .format-row {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border) 50%, transparent);
+}
+/* On hover the row's rounded background should sit above the hairline so the
+ * highlight reads as a clean pill, not a bisected one. */
+.format-row:hover { box-shadow: none; }
 
 .format-name {
   font-size: 12px;

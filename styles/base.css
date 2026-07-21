@@ -6,9 +6,10 @@
 [data-fv-theme="github-dark"] ::selection { background: rgba(245,111,166,.3); }
 
 :root {
-  /* Fonts */
-  --fv-font-mono: 'Consolas', 'Cascadia Code', 'Menlo', 'Monaco', monospace;
-  --fv-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  /* Fonts (mono stack carries Chinese fallback so CJK + ASCII mixes without
+   * line-height jitter — see C3) */
+  --fv-font-mono: 'Consolas', 'Cascadia Code', 'Menlo', 'Monaco', 'Microsoft YaHei Mono', 'Microsoft YaHei', 'PingFang SC', monospace;
+  --fv-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --fv-font-size: 18px;
   --fv-line-height: 1.65;
 
@@ -16,6 +17,37 @@
   --fv-toolbar-h: 46px;
   --fv-content-pad: 24px;
   --fv-indent: 20px;
+
+  /* Spacing scale (4 倍数网格, B8) */
+  --fv-space-1: 4px;
+  --fv-space-2: 8px;
+  --fv-space-3: 12px;
+  --fv-space-4: 16px;
+  --fv-space-5: 20px;
+  --fv-space-6: 24px;
+
+  /* Typography scale (B8) */
+  --fv-text-xs:   11px;
+  --fv-text-sm:   12px;
+  --fv-text-base: 13px;
+  --fv-text-md:   14px;
+  --fv-text-lg:   15px;
+  --fv-text-xl:   16px;
+  --fv-text-2xl:  18px;
+
+  /* Transition scale (B8) */
+  --fv-fast: .1s ease;
+  --fv-base: .18s ease;
+  --fv-slow: .3s ease;
+
+  /* z-index scale (B8) — single source of truth for stacking */
+  --fv-z-pane:    20;
+  --fv-z-chips:   100;
+  --fv-z-drop:    300;
+  --fv-z-picker:  400;
+  --fv-z-search:  9998;
+  --fv-z-toolbar: 9999;
+  --fv-z-tooltip: 10000;
 
   /* ── GitHub Light (default) ── */
   --fv-bg:            #ffffff;
@@ -51,7 +83,6 @@
   /* UI chrome */
   --fv-badge-bg:      #d81b60;
   --fv-badge-text:    #ffffff;
-  --fv-btn-radius:    6px;
   --fv-focus:         #ed4588;
   --fv-shadow:        0 1px 3px rgba(0,0,0,.08);
 
@@ -63,6 +94,13 @@
   --fv-radius-md:     8px;
   --fv-radius-lg:     12px;
   --fv-radius-pill:   999px;
+
+  /* Primary CTA gradient + matching shadow (B9: single source for the
+   * rose-pink gradient button used by playground primary btn, popup CTA,
+   * and translate buttons) */
+  --fv-primary-grad:        linear-gradient(180deg, #f56fa6 0%, #d81b60 100%);
+  --fv-primary-shadow:      0 2px 6px rgba(216,27,96,.35), 0 0 0 1px rgba(216,27,96,.25);
+  --fv-primary-shadow-hover:0 4px 12px rgba(216,27,96,.45), 0 0 0 1px rgba(216,27,96,.35);
 
   /* Scrollbar */
   --fv-scroll:        #d0d7de;
@@ -91,11 +129,16 @@
 
   --fv-badge-bg:      #f56fa6;
   --fv-badge-text:    #0d1117;
+  --fv-focus:         #f56fa6;
   --fv-scroll:        #424242;
   --fv-scroll-hover:  #686868;
   --fv-shadow-sm:     0 1px 2px rgba(0,0,0,.3);
   --fv-shadow-md:     0 4px 12px rgba(0,0,0,.4);
   --fv-shadow-lg:     0 8px 24px rgba(0,0,0,.5);
+  /* Dark primary: deeper rose so it doesn't burn against #1e1e1e */
+  --fv-primary-grad:        linear-gradient(180deg, #d81b60 0%, #a01346 100%);
+  --fv-primary-shadow:      0 2px 6px rgba(216,27,96,.5), 0 0 0 1px rgba(216,27,96,.4);
+  --fv-primary-shadow-hover:0 4px 12px rgba(216,27,96,.6), 0 0 0 1px rgba(216,27,96,.5);
 }
 
 /* Dark-mode overrides for the brand-gradient toolbar / pane headers */
@@ -105,9 +148,6 @@
 }
 [data-fv-theme="github-dark"] .fv-pg-chips {
   border-image: linear-gradient(90deg, #f56fa6 0%, #fba8c9 100%) 1;
-}
-[data-fv-theme="github-dark"] .fv-pg-input:focus {
-  border-left-color: #f56fa6;
 }
 [data-fv-theme="github-dark"] .fv-pg-chip.active {
   box-shadow: 0 0 8px rgba(245,111,166,.25);
@@ -174,8 +214,8 @@ body.fv-size-large  { --fv-font-size: 22px; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  z-index: 9999;
+  padding: 0 var(--fv-space-3);
+  z-index: var(--fv-z-toolbar);
   font-family: var(--fv-font-sans);
   box-shadow: var(--fv-shadow);
 }
@@ -211,7 +251,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
   gap: 6px;
   padding: 6px 14px;
   border: 1px solid transparent;
-  border-radius: var(--fv-btn-radius);
+  border-radius: 6px;
   background: transparent;
   color: var(--fv-text);
   font-family: var(--fv-font-sans);
@@ -226,7 +266,9 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-btn svg    { width: 16px; height: 16px; }
 
 /* Keyboard focus ring — shown only via keyboard nav (:focus-visible),
- * so mouse clicks don't trigger a ring. Unified across interactive controls. */
+ * so mouse clicks don't trigger a ring. Unified across interactive controls.
+ * (C2: text inputs use their own inset ring below, listed here so keyboard
+ *  users get a consistent outline.) */
 .fv-btn:focus-visible,
 .fv-pg-chip:focus-visible,
 .fv-pg-subchip:focus-visible,
@@ -234,10 +276,31 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-search-nav:focus-visible,
 .fv-memo-item:focus-visible,
 .fv-memo-new:focus-visible,
+.fv-memo-export-item:focus-visible,
+.fv-memo-icon-cell:focus-visible,
+.fv-diff-accept:focus-visible,
 .fv-pg-primary-btn:focus-visible {
   outline: 2px solid var(--fv-focus);
   outline-offset: 2px;
 }
+
+/* B3: press feedback — gives every clickable control a tactile "push" on
+ * mousedown. Rectangular buttons translate down 1px; square icon buttons
+ * scale slightly so the press reads at any size. The primary CTA keeps its
+ * own active rule (translateY 0) defined alongside it. */
+.fv-btn:active,
+.fv-pg-subchip:active,
+.fv-memo-item:active,
+.fv-memo-new:active { transform: translateY(1px); }
+/* Tabs don't translate on press (button-y feel); a quick dim reads cleaner. */
+.fv-pg-chip:active { opacity: .7; }
+.fv-search-close:active,
+.fv-search-nav:active,
+.fv-memo-icon-cell:active,
+.fv-memo-export-item:active { transform: scale(.94); }
+/* The base .fv-btn:hover uses scale(1.04); preserve that lift but still
+ * settle on press. */
+.fv-btn:active { transform: scale(1); }
 
 /* ── Custom tooltip (200ms delay vs browser-native ~1s) ─────── */
 .fv-btn[data-tip]::after,
@@ -255,12 +318,12 @@ body.fv-size-large  { --fv-font-size: 22px; }
   font-size: 11px;
   font-family: var(--fv-font-sans);
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: var(--fv-radius-sm);
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  z-index: 10000;
-  transition: opacity .1s;
+  z-index: var(--fv-z-tooltip);
+  transition: opacity var(--fv-fast);
   /* no transition-delay here: tooltip disappears immediately on mouse-out */
 }
 .fv-btn[data-tip]:hover::after,
@@ -289,6 +352,20 @@ body.fv-size-large  { --fv-font-size: 22px; }
   flex-shrink: 0;
 }
 
+/* ── Overlay & pane transitions (B4) ────────────────────────────
+ * Unified fade/slide for popovers (icon picker, export dropdown) and the
+ * maximize/restore pane swap, so nothing snaps in/out via display:none.
+ * The search bar below uses the same .18s easing — this is the shared
+ * visual language for transient surfaces. */
+@keyframes fv-overlay-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fv-overlay-in { animation: fv-overlay-in var(--fv-base); }
+/* Panes fade on maximize/restore. The grid column swap itself can't be
+ * transitioned cleanly, so we fade opacity while the layout flips. */
+.fv-pg-pane { transition: opacity var(--fv-base); }
+
 /* ── Search Bar ─────────────────────────────────────────────── */
 .fv-search-bar {
   position: fixed;
@@ -299,8 +376,8 @@ body.fv-size-large  { --fv-font-size: 22px; }
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
   border-bottom: 1px solid var(--fv-border);
   box-shadow: var(--fv-shadow-md);
-  padding: 6px 12px;
-  z-index: 9998;
+  padding: var(--fv-space-2) var(--fv-space-3);
+  z-index: var(--fv-z-search);
   font-family: var(--fv-font-sans);
   display: flex;
   align-items: center;
@@ -320,7 +397,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
   flex: 1;
   padding: 4px 10px;
   border: 1px solid var(--fv-border);
-  border-radius: var(--fv-btn-radius);
+  border-radius: 6px;
   background: var(--fv-bg-search);
   color: var(--fv-text);
   font-family: var(--fv-font-sans);
@@ -338,7 +415,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--fv-radius-sm);
   background: transparent;
   color: var(--fv-text-muted);
   font-size: 18px;
@@ -357,7 +434,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
   width: 28px;
   height: 28px;
   border: 1px solid transparent;
-  border-radius: var(--fv-btn-radius);
+  border-radius: 6px;
   background: transparent;
   color: var(--fv-text-muted);
   cursor: pointer;
@@ -627,7 +704,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-md-root code {
   background: var(--fv-bg-toolbar);
   border: 1px solid var(--fv-border);
-  border-radius: 4px;
+  border-radius: var(--fv-radius-sm);
   padding: .15em .4em;
   font-family: var(--fv-font-mono);
   font-size: .9em;
@@ -706,40 +783,63 @@ body.fv-playground-body { overflow: hidden; }
   top: var(--fv-toolbar-h);
   left: 0; right: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 14px;
+  flex-wrap: nowrap;
+  gap: var(--fv-space-1);
+  padding: 0 var(--fv-space-3);
   background: color-mix(in srgb, var(--fv-bg) 88%, transparent);
   backdrop-filter: blur(12px) saturate(1.4);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border-bottom: 2px solid;
-  border-image: linear-gradient(90deg, #d81b60 0%, #f56fa6 100%) 1;
-  box-shadow: 0 1px 3px rgba(0,0,0,.04);
-  z-index: 100;
+  border-bottom: 1px solid var(--fv-border);
+  box-shadow: var(--fv-shadow-sm);
+  z-index: var(--fv-z-chips);
+  overflow-x: auto;
+  overflow-y: hidden;
 }
+/* B11: hide the chip-row scrollbar — it scrolls horizontally when there are
+ * more modules than fit, but a visible scrollbar here would eat vertical
+ * space and look noisy. Keyboard/wheel scroll still works. */
+.fv-pg-chips::-webkit-scrollbar { height: 0; display: none; }
+.fv-pg-chips { scrollbar-width: none; }
+.fv-pg-chip { flex-shrink: 0; }
 
+/* Module switcher — IDE-style flat tabs (not pill buttons).
+ * Default state is borderless muted text; the active tab gets brand-colored
+ * text plus a 2px underline that sits on the bar's bottom border, so the open
+ * tab reads as connected to the content below. */
 .fv-pg-chip {
-  padding: 6px 16px;
-  border: 1px solid var(--fv-border);
-  border-radius: 18px;
-  background: var(--fv-bg-toolbar);
-  color: var(--fv-text);
+  position: relative;
+  padding: 10px var(--fv-space-3);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fv-text-muted);
   font-family: var(--fv-font-sans);
-  font-size: 14px;
+  font-size: var(--fv-text-md);
   cursor: pointer;
-  transition: background .15s, border-color .15s, color .15s, transform .12s, box-shadow .12s;
+  white-space: nowrap;
+  transition: color var(--fv-fast), background var(--fv-fast);
 }
 .fv-pg-chip:hover {
   background: var(--fv-hover-accent);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,.06);
+  color: var(--fv-text);
 }
 .fv-pg-chip.active {
-  background: var(--fv-badge-bg);
-  border-color: var(--fv-focus);
-  color: var(--fv-badge-text);
+  background: transparent;
+  color: var(--fv-focus);
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(237,69,136,.12);
+}
+/* Active tab underline — 2px brand line anchored to the bar's bottom edge.
+ * bottom:-1px overlaps the bar's 1px border so the line visually meets the
+ * content pane. */
+.fv-pg-chip.active::after {
+  content: '';
+  position: absolute;
+  left: var(--fv-space-3);
+  right: var(--fv-space-3);
+  bottom: -1px;
+  height: 2px;
+  background: var(--fv-focus);
+  border-radius: 2px 2px 0 0;
 }
 
 .fv-pg-textbtn {
@@ -779,6 +879,34 @@ body.fv-playground-body { overflow: hidden; }
 .fv-pg-divider:hover { background: var(--fv-hover-accent); }
 .fv-pg-divider:hover::after { background: var(--fv-focus); }
 
+/* B1: full-workspace drop overlay shown while dragging a file in. */
+.fv-pg-dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: var(--fv-z-picker);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--fv-hover-accent) 72%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  border: 2px dashed var(--fv-focus);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--fv-base);
+}
+.fv-pg-dropzone.active { opacity: 1; }
+.fv-pg-dropzone-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--fv-space-3);
+  font-family: var(--fv-font-sans);
+  color: var(--fv-text);
+}
+.fv-pg-dropzone-icon { font-size: 48px; line-height: 1; }
+.fv-pg-dropzone-text { font-size: var(--fv-text-xl); font-weight: 600; }
+
 
 /* Each side is a column: optional header + scrollable body.
  * overflow:visible so header tooltips (::after) aren't clipped; each body
@@ -806,7 +934,7 @@ body.fv-playground-body { overflow: hidden; }
   color: var(--fv-text);
   letter-spacing: .06em;
   position: relative; /* anchor for the history dropdown */
-  z-index: 20;        /* keep header + its tooltips above the scrolling body */
+  z-index: var(--fv-z-pane); /* keep header + its tooltips above the scrolling body */
 }
 .fv-pg-pane-header .fv-btn { padding: 2px 6px; }
 .fv-pg-pane-header .fv-btn svg { width: 14px; height: 14px; }
@@ -821,7 +949,7 @@ body.fv-playground-body { overflow: hidden; }
 .fv-pg-input {
   flex: 1;
   width: 100%;
-  padding: 14px;
+  padding: var(--fv-space-3);
   border: none;
   outline: none;
   resize: none;
@@ -830,23 +958,22 @@ body.fv-playground-body { overflow: hidden; }
   line-height: var(--fv-line-height);
   color: var(--fv-text);
   background: color-mix(in srgb, var(--fv-bg-toolbar) 35%, var(--fv-bg));
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.04);
+  transition: box-shadow var(--fv-base), background var(--fv-base);
 }
 .fv-pg-input:focus {
   background: var(--fv-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fv-focus) 25%, transparent);
+  box-shadow: inset 0 0 0 1px var(--fv-focus);
 }
 
 .fv-pg-output {
   flex: 1;
   min-height: 0;
-  padding: 14px;
+  padding: var(--fv-space-3);
   overflow: auto;
   background: color-mix(in srgb, var(--fv-bg-toolbar) 25%, var(--fv-bg));
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.04);
   font-family: var(--fv-font-mono);
   font-size: var(--fv-font-size);
-  line-height: 1.6;
+  line-height: var(--fv-line-height);
   color: var(--fv-text);
 }
 /* Empty-state placeholder inside the output pane */
@@ -871,7 +998,6 @@ body.fv-playground-body { overflow: hidden; }
   border: 1px solid var(--fv-border);
   border-radius: var(--fv-radius-md);
   overflow: hidden;
-  box-shadow: var(--fv-shadow-sm);
 }
 .fv-pg-sec-title {
   padding: 6px 10px;
@@ -899,7 +1025,6 @@ body.fv-playground-body { overflow: hidden; }
   font-size: 15px;
   color: var(--fv-text-muted);
   font-family: var(--fv-font-mono);
-}
 }
 .fv-pg-sec-json { color: var(--fv-text); }
 
@@ -957,16 +1082,16 @@ body.fv-playground-body { overflow: hidden; }
 .fv-pg-subchip {
   padding: 4px 14px;
   border: 1px solid var(--fv-border);
-  border-radius: 14px;
+  border-radius: var(--fv-radius-pill);
   background: var(--fv-bg);
   color: var(--fv-text);
   font-family: var(--fv-font-sans);
-  font-size: 14px;
+  font-size: var(--fv-text-md);
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
   cursor: pointer;
-  transition: background .12s, border-color .12s, color .12s;
+  transition: background var(--fv-fast), border-color var(--fv-fast), color var(--fv-fast);
 }
 .fv-pg-subchip:hover { background: var(--fv-bg-hover); }
 .fv-pg-subchip.active {
@@ -1062,10 +1187,26 @@ body.fv-playground-body { overflow: hidden; }
 }
 .fv-diff-shell-v2 .fv-diff-stats {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fv-space-1);
   font-family: var(--fv-font-mono);
-  font-size: 12px;
+  font-size: var(--fv-text-md);
   color: var(--fv-text-muted);
 }
+/* C5: coloured count badges (+green / -red / =grey). */
+.fv-diff-stat {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--fv-space-2);
+  border-radius: var(--fv-radius-sm);
+  font-weight: 600;
+}
+.fv-diff-stat-add { background: color-mix(in srgb, #22c55e 18%, transparent); color: #16a34a; }
+.fv-diff-stat-del { background: color-mix(in srgb, #ef4444 18%, transparent); color: #dc2626; }
+.fv-diff-stat-eq  { background: var(--fv-bg-hover); color: var(--fv-text-muted); }
+[data-fv-theme="github-dark"] .fv-diff-stat-add { color: #4ade80; }
+[data-fv-theme="github-dark"] .fv-diff-stat-del { color: #f87171; }
 .fv-diff-shell-v2 .fv-diff-body {
   flex: 1;
   display: grid;
@@ -1198,7 +1339,7 @@ body.fv-playground-body { overflow: hidden; }
   border: 1px solid var(--fv-border);
   background: var(--fv-bg);
   color: var(--fv-text);
-  border-radius: 4px;
+  border-radius: var(--fv-radius-sm);
   cursor: pointer;
   font-size: 11px;
   line-height: 1;
@@ -1239,8 +1380,37 @@ body.fv-playground-body { overflow: hidden; }
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  width: 240px;
+  flex-shrink: 0;
   background: var(--fv-bg-toolbar);
+  overflow: hidden;
+  transition: width var(--fv-base);
 }
+/* Collapsed sidebar: shrinks to a narrow rail. */
+.fv-memo-sidebar.collapsed { width: 0; }
+.fv-memo-sidebar.collapsed .fv-memo-new,
+.fv-memo-sidebar.collapsed .fv-memo-list { display: none; }
+
+/* Divider between the file list and the editor — a pure 1px separator.
+ * Collapses to 0 width when the sidebar is hidden. */
+.fv-memo-divider {
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--fv-border);
+  transition: background var(--fv-base), width var(--fv-base);
+}
+.fv-memo-divider.collapsed { width: 0; background: transparent; }
+
+/* Collapse toggle lives in the toolbar (not on the divider) so it never
+ * overlaps the editor. It inherits .fv-btn base styling; this rule only adds
+ * the "pressed" (sidebar hidden) indicator so users can see the current state
+ * and know a click will expand. */
+.fv-memo-collapse-btn[aria-pressed="true"] {
+  background: var(--fv-hover-accent);
+  color: var(--fv-focus);
+  border-color: var(--fv-focus);
+}
+
 .fv-memo-new {
   display: inline-flex;
   align-items: center;
@@ -1267,6 +1437,15 @@ body.fv-playground-body { overflow: hidden; }
   flex-direction: column;
   gap: 2px;
 }
+/* Divider between the file list and the editor. Collapses to 0 width (with
+ * a fade) when the sidebar is collapsed, so the rail meets the editor cleanly. */
+.fv-memo-divider {
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--fv-border);
+  transition: width var(--fv-base), opacity var(--fv-base);
+}
+.fv-memo-divider.collapsed { width: 0; opacity: 0; }
 .fv-memo-item {
   display: flex;
   align-items: center;
@@ -1341,19 +1520,25 @@ body.fv-playground-body { overflow: hidden; }
   border: 1px solid var(--fv-border);
   border-radius: var(--fv-radius-md);
   box-shadow: var(--fv-shadow-lg);
-  z-index: 300;
+  z-index: var(--fv-z-drop);
   overflow: hidden;
 }
 .fv-memo-export-item {
-  padding: 8px 14px;
+  display: block;
+  width: 100%;
+  padding: var(--fv-space-2) var(--fv-space-3);
+  border: none;
+  background: transparent;
+  text-align: left;
   font-family: var(--fv-font-sans);
-  font-size: 13px;
+  font-size: var(--fv-text-base);
   color: var(--fv-text);
   cursor: pointer;
-  transition: background .12s;
+  transition: background var(--fv-fast);
 }
 .fv-memo-export-item:hover { background: var(--fv-hover-accent); }
 .fv-memo-editor {
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1366,7 +1551,7 @@ body.fv-playground-body { overflow: hidden; }
   align-items: center;
   gap: 8px;
   height: 42px;
-  padding-left: 12px;
+  padding-left: var(--fv-space-4);
   border-bottom: 1px solid var(--fv-border);
 }
 .fv-memo-editor-icon { font-size: 18px; }
@@ -1374,7 +1559,7 @@ body.fv-playground-body { overflow: hidden; }
   flex: 1;
   min-width: 0;
   height: 42px;
-  padding: 0 14px 0 0;
+  padding: 0 var(--fv-space-4) 0 var(--fv-space-3);
   border: none;
   background: transparent;
   font-family: var(--fv-font-sans);
@@ -1383,7 +1568,7 @@ body.fv-playground-body { overflow: hidden; }
   color: var(--fv-text);
 }
 .fv-memo-title::placeholder { color: var(--fv-text-muted); font-weight: 400; }
-.fv-memo-title:focus { outline: none; }
+.fv-memo-title:focus { outline: none; box-shadow: inset 0 0 0 1px var(--fv-focus); }
 /* Icon picker popup */
 .fv-memo-icon-picker {
   position: fixed;
@@ -1395,7 +1580,7 @@ body.fv-playground-body { overflow: hidden; }
   border: 1px solid var(--fv-border);
   border-radius: var(--fv-radius-md);
   box-shadow: var(--fv-shadow-lg);
-  z-index: 400;
+  z-index: var(--fv-z-picker);
 }
 .fv-memo-icon-cell {
   width: 36px; height: 36px;
@@ -1415,15 +1600,15 @@ body.fv-playground-body { overflow: hidden; }
   width: 100%;
   resize: none;
   border: none;
-  padding: 14px;
+  padding: var(--fv-space-3);
   font-family: var(--fv-font-mono);
   font-size: var(--fv-font-size);
-  line-height: 1.6;
+  line-height: var(--fv-line-height);
   color: var(--fv-text);
   background: transparent;
 }
 .fv-memo-body::placeholder { color: var(--fv-text-muted); }
-.fv-memo-body:focus { outline: none; }
+.fv-memo-body:focus { outline: none; box-shadow: inset 0 0 0 1px var(--fv-focus); }
 
 /* ── QR code mode ───────────────────────────────────────────── */
 .fv-pg-qr-wrap {
@@ -1443,27 +1628,72 @@ body.fv-playground-body { overflow: hidden; }
   color: var(--fv-text-muted);
 }
 
+/* Primary CTA — the single rose-pink gradient button. Used by the popup
+ * CTA, the QR download button, and the translate action buttons (B9).
+ * Variants: `.fv-pg-primary-btn--sm` for compact toolbar use. */
 .fv-pg-primary-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  padding: 12px 28px;
-  background: linear-gradient(180deg, #f56fa6 0%, #d81b60 100%);
+  padding: var(--fv-space-3) var(--fv-space-6);
+  background: var(--fv-primary-grad);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--fv-radius-md);
   font-family: var(--fv-font-sans);
-  font-size: 15px;
+  font-size: var(--fv-text-lg);
   font-weight: 700;
   letter-spacing: .02em;
   cursor: pointer;
-  transition: transform .08s, box-shadow .12s, filter .12s;
-  box-shadow: 0 2px 6px rgba(216, 27, 96, .35), 0 0 0 1px rgba(216, 27, 96, .25);
+  transition: transform var(--fv-fast), box-shadow var(--fv-base), filter var(--fv-base);
+  box-shadow: var(--fv-primary-shadow);
 }
 .fv-pg-primary-btn:hover {
   filter: brightness(1.05);
-  box-shadow: 0 4px 12px rgba(216, 27, 96, .45), 0 0 0 1px rgba(216, 27, 96, .35);
+  box-shadow: var(--fv-primary-shadow-hover);
   transform: translateY(-1px);
 }
 .fv-pg-primary-btn:active { transform: translateY(0); }
+.fv-pg-primary-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; filter: none; }
 .fv-pg-primary-btn svg { display: block; width: 16px; height: 16px; }
+/* Compact variant for toolbar translate buttons */
+.fv-pg-primary-btn--sm {
+  padding: 5px var(--fv-space-3);
+  font-size: var(--fv-text-base);
+  font-weight: 600;
+  gap: var(--fv-space-1);
+}
+
+/* ── Responsive: narrow-viewport degradation (B12) ──────────────
+ * Below 900px the side-by-side panes become too cramped; we stack them
+ * vertically and lay diff out top/bottom. The split drag handler in
+ * index.ts also goes no-op in this range (applySplitRatio checks width).
+ * The memo sidebar is capped to 45% instead of its fixed 240px. */
+@media (max-width: 900px) {
+  /* Force vertical stack: input / divider / output. */
+  .fv-pg-split {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 6px 1fr;
+  }
+  .fv-pg-divider { cursor: row-resize; }
+  .fv-pg-divider::after { width: 24px; height: 2px; }
+
+  /* Diff: top/bottom instead of left/right. */
+  .fv-diff-shell-v2 .fv-diff-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .fv-diff-side-left {
+    border-right: none;
+    border-bottom: 1px solid var(--fv-border);
+  }
+  .fv-diff-side-right {
+    border-left: none;
+    border-top: 1px solid var(--fv-border);
+  }
+
+  /* Memo sidebar: cap instead of fixed 240px so the editor keeps room on
+   * narrow screens. Only applies when expanded — collapsed stays at 38px. */
+  .fv-memo-sidebar:not(.collapsed) { width: 45% !important; max-width: 240px; }
+}
