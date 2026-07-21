@@ -306,8 +306,16 @@ function build(): void {
     });
   });
 
-  const clearBtn = iconBtn(ICONS.clear, t('清空当前格式', 'Clear current format'));
+  const clearBtn = iconBtn(ICONS.clear, t('清空当前内容', 'Clear current content'));
   clearBtn.addEventListener('click', () => {
+    // Confirm before clearing — the action is destructive and the saved draft
+    // is overwritten on the next debounced flush, so it can't be undone.
+    const msg = currentMode === 'memo'
+      ? t('确定清空当前备忘录的标题和内容吗?', 'Clear this memo\'s title and content?')
+      : currentMode === 'diff'
+        ? t('确定清空两侧对比文本吗?', 'Clear both sides of the comparison?')
+        : t('确定清空当前输入内容吗?', 'Clear the current input?');
+    if (!window.confirm(msg)) return;
     if (currentMode === 'memo') {
       const f = currentMemo();
       if (f && memoTitleEl && memoBodyEl) {
