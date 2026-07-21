@@ -58,15 +58,15 @@
 
 #### Chrome
 
-1. 打开 `chrome://extensions`
+1. 浏览器输入打开 `chrome://extensions` 或 直接打开管理扩展
 2. 右上角打开「开发者模式」
 3. 左上角点击「加载未打包的扩展程序」
 4. 选择解压出来的目录(含 `manifest.json`)
 
 #### Edge
 
-1. 打开 `edge://extensions`
-2. 左侧打开「开发人员模式」
+1. 浏览器输入打开 `edge://extensions` 或 直接打开管理扩展
+2. 左侧下方打开「开发人员模式」
 3. 点击「加载解压缩的扩展」
 4. 选择解压出来的目录
 
@@ -91,7 +91,7 @@ npm run build
 
 构建产物在 `dist/`,然后照「加载扩展」选项目根目录。
 
-`npm run package` 打包为 `release/plain-view.zip`。
+`npm run package` 打包为 `release/plain-view.zip`，得到压缩包后直接解压到当前目录，后续步骤和上面【加载扩展】的步骤一样，根据自己的浏览器进行选择。
 
 ---
 
@@ -126,4 +126,4 @@ manifest.json
 popup.html / viewer.html / playground.html
 ```
 ## 联系作者
-有任何问题可请联系作者VX：yuxi250428
+有任何问题可请联系作者VX：vwvwbdwvwv
