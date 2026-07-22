@@ -46,6 +46,34 @@ function scheduleSave(): void {
   }, 300);
 }
 
+// ── Soft size limit ──────────────────────────────────────────
+// The gutter's per-line height measurement (attachWrappedGutter) plus the
+// full-output re-render on every keystroke is O(N) DOM + O(N) forced reflows.
+// Past these thresholds the main thread freezes for seconds, so we pause the
+// real-time formatting and show a warning card instead. The textarea stays
+// editable/scrollable/copyable; a "format anyway" button lets the user force
+// a one-shot render (still skipping the line-number gutter).
+const SOFT_LIMIT_BYTES = 1_000_000;   // ~1 MB
+const SOFT_LIMIT_LINES  = 20_000;     // 20k lines
+// Markdown is heavier per byte: mdToHtml renders then mdLineMap reads
+// getBoundingClientRect() on every block (forced layout), and the input→output
+// scroll sync linearly scans the gutter on every scroll. Use a stricter cap.
+const MD_LIMIT_BYTES = 500_000;       // 500 KB
+const MD_LIMIT_LINES = 10_000;        // 10k lines
+function isOverLimit(text: string, mode?: string): boolean {
+  const isMd = mode === 'markdown';
+  const byteLimit = isMd ? MD_LIMIT_BYTES : SOFT_LIMIT_BYTES;
+  const lineLimit = isMd ? MD_LIMIT_LINES : SOFT_LIMIT_LINES;
+  return text.length > byteLimit || text.split('\n').length > lineLimit;
+}
+function describeSize(text: string): string {
+  const kb = text.length > 1_000_000
+    ? (text.length / 1_000_000).toFixed(2) + ' MB'
+    : (text.length / 1024).toFixed(1) + ' KB';
+  const lines = text.split('\n').length;
+  return kb + ' · ' + lines.toLocaleString() + ' ' + t('行', 'lines');
+}
+
 // ── DOM building ──────────────────────────────────────────────
 // All of these are initialized synchronously inside `build()` (called from the
 // boot IIFE) before any other code references them; the `!` assertions tell
@@ -60,6 +88,12 @@ let inputScroll!: HTMLElement;
 let currentMode: Mode = 'json';
 // Markdown scroll-sync: maps source line index → output block offsetTop.
 let mdLineMap: { line: number; top: number }[] = [];
+
+// Cached cumulative offsetTops of each gutter row (in content-scroll pixels).
+// Refreshed by attachWrappedGutter; consumed by markdownScrollSync via binary
+// search so scrolling never reads layout (offsetTop) per row — that read could
+// trigger a reflow and made multi-thousand-line docs janky on scroll.
+let gutterTops: number[] = [];
 
 let diffShell!: HTMLElement;
 let diffLeft!:  HTMLTextAreaElement;
@@ -258,26 +292,49 @@ function attachWrappedGutter(ta: HTMLTextAreaElement, gutterInner: HTMLElement):
 
     const lines = ta.value.split('\n');
 
-    // Measure each logical line's rendered height
+    // Build the measurement mirror: one div per logical line. We append them
+    // all up front (a single write batch) before reading any height.
     mirror.innerHTML = '';
     const blocks: HTMLDivElement[] = [];
+    // Use a DocumentFragment so the mirror only reflows once on append, not
+    // once per line.
+    const frag = document.createDocumentFragment();
     for (const ln of lines) {
       const d = document.createElement('div');
       d.style.cssText = 'white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;';
       d.textContent = ln === '' ? '​' : ln;
-      mirror.appendChild(d);
+      frag.appendChild(d);
       blocks.push(d);
     }
+    mirror.appendChild(frag);
 
-    // Rebuild gutter rows with matching heights
-    gutterInner.innerHTML = '';
+    // Read every line height in one tight loop with NO interleaved writes.
+    // Reading offsetHeight after all appends are done lets the browser batch
+    // them into a single layout pass — the previous read/write-per-line
+    // alternation (layout thrashing) was the main freeze source when pasting
+    // thousands of lines.
+    const heights = new Array<number>(lines.length);
     for (let i = 0; i < lines.length; i++) {
+      heights[i] = blocks[i].offsetHeight;
+    }
+
+    // Now write: rebuild the gutter rows and cache cumulative offsetTops for
+    // the scroll-sync binary search. All writes, no reads → one more layout.
+    gutterInner.innerHTML = '';
+    gutterTops = new Array(lines.length);
+    const gfrag = document.createDocumentFragment();
+    let cum = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const h = heights[i];
+      gutterTops[i] = cum;
+      cum += h;
       const g = document.createElement('div');
       g.className = 'fv-pg-gutter-ln';
       g.textContent = String(i + 1);
-      g.style.height = blocks[i].offsetHeight + 'px';
-      gutterInner.appendChild(g);
+      g.style.height = h + 'px';
+      gfrag.appendChild(g);
     }
+    gutterInner.appendChild(gfrag);
   }
 
   return refresh;
@@ -335,6 +392,9 @@ function build(): void {
     } else {
       input.value = '';
       if (state.inputs) state.inputs[currentMode as SingleMode] = '';
+      // Rebuild the line-number gutter so stale row numbers are cleared
+      // (syncInput also re-collapses the textarea height for the empty input).
+      if (refreshInputGutter) refreshInputGutter();
       runFormat();
       input.focus();
     }
@@ -450,9 +510,14 @@ function build(): void {
       state.inputs[currentMode] = input.value;
     }
     scheduleSave();
-    syncInput();
+    // Size guard: the gutter rebuilds one div + reads offsetHeight per line
+    // (forced reflow), so above the soft limit we skip it entirely — only the
+    // textarea's own height is adjusted. runFormat() shows the warning card.
+    const overLimit = currentMode !== 'diff' && currentMode !== 'memo' && isOverLimit(input.value, currentMode);
+    if (!overLimit) syncInput();
+    else expandTextarea();
     if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(runFormat, 120);
+    debounce = setTimeout(() => runFormat(overLimit), 120);
   });
 
   refreshInputGutter = syncInput;
@@ -480,7 +545,12 @@ function build(): void {
     }
   });
 
-  const inputObserver = new ResizeObserver(() => syncInput());
+  // ResizeObserver keeps the gutter in sync with the textarea's font metrics
+  // and soft-wrapped line heights. Above the soft limit we skip the gutter
+  // rebuild to avoid the per-line reflow storm.
+  const inputObserver = new ResizeObserver(() => {
+    if (!isOverLimit(input.value, currentMode)) syncInput();
+  });
   inputObserver.observe(input);
 
   // Drag-and-drop file → load content + auto-switch mode.
@@ -692,29 +762,36 @@ function build(): void {
   function markdownScrollSync(): void {
     if (currentMode !== 'markdown' || mdLineMap.length === 0) return;
 
-    // Determine the visible source line precisely using the gutter's per-line
-    // divs. Each gutter row height already reflects the true rendered height
-    // (including soft-wrapped lines), so accumulating their offsetTops gives an
-    // exact line→pixel map — no fixed-lineHeight assumption, no accumulated
-    // drift on long content.
-    const gutterRows = inputGutterInner.children;
-    if (gutterRows.length === 0) return;
+    // Determine the visible source line via binary search over the cached
+    // cumulative gutter row heights (gutterTops). This is O(log N) and reads
+    // no layout at all — reading offsetTop per row here is what made scrolling
+    // multi-thousand-line docs janky (each read can force a reflow).
+    const n = gutterTops.length;
+    if (n === 0) return;
     const scrollY = inputScroll.scrollTop;
-    // The gutter's own top padding aligns it with the textarea content, so
-    // offsetTop values are already relative to the scrollable content origin.
     let visibleLine = 0;
-    for (let i = 0; i < gutterRows.length; i++) {
-      if ((gutterRows[i] as HTMLElement).offsetTop <= scrollY) visibleLine = i;
-      else break;
+    if (scrollY > 0) {
+      let lo = 0, hi = n - 1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (gutterTops[mid] <= scrollY) { visibleLine = mid; lo = mid + 1; }
+        else { hi = mid - 1; }
+      }
     }
 
     // Find the output blocks surrounding visibleLine for interpolation.
+    // mdLineMap is sorted ascending by line, so binary-search the largest
+    // entry with line <= visibleLine (prev); next is the entry after it.
     let prev = mdLineMap[0];
     let next = mdLineMap[mdLineMap.length - 1];
-    for (const entry of mdLineMap) {
-      if (entry.line <= visibleLine) prev = entry;
-      if (entry.line > visibleLine) { next = entry; break; }
+    let lo = 0, hi = mdLineMap.length - 1, prevIdx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (mdLineMap[mid].line <= visibleLine) { prevIdx = mid; lo = mid + 1; }
+      else { hi = mid - 1; }
     }
+    prev = mdLineMap[prevIdx];
+    if (prevIdx + 1 < mdLineMap.length) next = mdLineMap[prevIdx + 1];
     const span = next.line - prev.line;
     if (span > 0) {
       const ratio = Math.max(0, Math.min(1, (visibleLine - prev.line) / span));
@@ -788,9 +865,22 @@ function switchMode(mode: Mode): void {
   split.classList.remove('fv-pg-max-input', 'fv-pg-max-output');
   if (mode !== 'diff' && mode !== 'memo') {
     input.value = (state.inputs && state.inputs[mode]) ?? '';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // Restore the textarea height + gutter in ONE pass. We used to dispatch a
+    // synthetic 'input' event here, but that re-ran the full input listener
+    // (syncInput + a debounced runFormat + scheduleSave) and then this function
+    // called refreshInputGutter() and runFormat() again — so every switch did
+    // double gutter rebuilds + double renders + an unnecessary storage write.
+    // For large Markdown drafts that double work froze the tab on switch.
+    const overLimit = isOverLimit(input.value, mode);
+    if (!overLimit) {
+      if (refreshInputGutter) refreshInputGutter();
+    } else {
+      // Over the soft limit: skip the per-line gutter rebuild, just size the
+      // textarea. runFormat() below will show the size-warning card.
+      input.style.height = 'auto';
+      input.style.height = input.scrollHeight + 'px';
+    }
   }
-  if (refreshInputGutter) refreshInputGutter();
   applyPlaceholder();
   scheduleSave();
   updateChips();
@@ -827,7 +917,7 @@ function updateCopyBtnState(): void {
   copyBtn.dataset.tip = hasContent ? t('复制结果', 'Copy result') : t('无内容可复制', 'Nothing to copy');
 }
 
-function runFormat(): void {
+function runFormat(skipExpensive?: boolean): void {
   toggleDiffShell(currentMode === 'diff');
   toggleMemoShell(currentMode === 'memo');
   if (currentMode === 'diff' || currentMode === 'memo') return;
@@ -838,6 +928,17 @@ function runFormat(): void {
 
   if (!raw.trim()) {
     showEmptyOutput();
+    return;
+  }
+
+  // Soft size guard: past the threshold the real-time render + line-number
+  // gutter freeze the main thread. Show a warning card instead, unless the
+  // user explicitly forced a one-shot render (skipExpensive=true). The forced
+  // path still skips syncInput/gutter (the caller is responsible for not
+  // rebuilding the gutter), only the output is rendered.
+  if (!skipExpensive && isOverLimit(raw, currentMode)) {
+    showSizeWarning(raw);
+    updateCopyBtnState();
     return;
   }
 
@@ -1109,6 +1210,32 @@ function renderErrorPlaceholder(title: string, detail: string): void {
   output.appendChild(buildErrorPlaceholder(title, detail));
 }
 
+// Size-limit warning card — shown in place of formatted output when the input
+// crosses the soft threshold. The textarea stays fully editable; the user can
+// click "format anyway" to force a one-shot render (the line-number gutter
+// stays disabled because its per-line measurement is the main freeze source).
+function showSizeWarning(raw: string): void {
+  output.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'fv-pg-error';
+  const icon = document.createElement('div');
+  icon.className = 'fv-pg-error-icon';
+  icon.textContent = '📏';
+  const h = document.createElement('div');
+  h.className = 'fv-pg-error-title';
+  h.textContent = t('内容过大，已暂停实时格式化', 'Content too large — live formatting paused');
+  const d = document.createElement('div');
+  d.className = 'fv-pg-error-detail';
+  d.textContent = describeSize(raw) + ' · ' + t('继续编辑、滚动、复制均不受影响', 'editing, scrolling and copying still work');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'fv-pg-primary-btn fv-pg-primary-btn--sm';
+  btn.textContent = t('仍要格式化', 'Format anyway');
+  btn.addEventListener('click', () => { runFormat(true); });
+  card.append(icon, h, d, btn);
+  output.appendChild(card);
+}
+
 // Lightweight JSON syntax highlighter for text output (minify/escape views).
 function jsonHighlight(text: string): string {
   const re = /"(?:\\.|[^"\\])*"(\s*:)?|true|false|null|-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?/g;
@@ -1149,25 +1276,29 @@ function renderMarkdown(raw: string): void {
   root.className = 'fv-md-root';
   root.innerHTML = mdToHtml(raw);
   output.appendChild(root);
-  lastResultText = root.innerText;
+  // Copy/stats use the source Markdown rather than root.innerText. innerText
+  // forces a full layout + style recalc of the rendered tree and was a major
+  // cost on multi-thousand-line docs; the source is what users actually want
+  // when copying out of a Markdown viewer anyway.
+  lastResultText = raw;
 
   // Build the source-line → output-scrollTop map for scroll sync.
-  // We compute the exact scrollTop value that would place each block at the
-  // top of the output viewport, using getBoundingClientRect so we don't depend
-  // on the offsetParent chain (which is unreliable with the centred layout).
-  // Reset scrollTop first so the rect math has a stable baseline.
+  // Read the output's border-box rect and its padding-top first (a single
+  // batched read), then read every block's rect in one tight loop with no
+  // interleaved writes — so the browser only lays out once for all of them.
   output.scrollTop = 0;
   const outRect = output.getBoundingClientRect();
-  // scrollTop=0 aligns the content-box top (after padding) with the viewport.
-  // getBoundingClientRect returns border-box positions, so subtract the
-  // output's padding-top to convert to a content-relative scrollTop value.
   const outPadTop = parseFloat(getComputedStyle(output).paddingTop) || 0;
-  mdLineMap = Array.from(root.querySelectorAll<HTMLElement>('[data-line]')).map((el) => {
-    const line = parseInt(el.dataset.line || '0', 10);
+  const blocks = root.querySelectorAll<HTMLElement>('[data-line]');
+  mdLineMap = new Array(blocks.length);
+  for (let i = 0; i < blocks.length; i++) {
+    const el = blocks[i];
     const elRect = el.getBoundingClientRect();
-    const targetScrollTop = elRect.top - outRect.top - outPadTop;
-    return { line, top: Math.max(0, targetScrollTop) };
-  });
+    mdLineMap[i] = {
+      line: parseInt(el.dataset.line || '0', 10),
+      top: Math.max(0, elRect.top - outRect.top - outPadTop),
+    };
+  }
 }
 
 function renderSql(raw: string): void {
