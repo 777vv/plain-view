@@ -1,29 +1,32 @@
 :root {
-  --bg:            #ffffff;
-  --bg-2:          #fdf2f7;
-  --bg-3:          #fbe0ec;
-  --border:        #f3d4e1;
-  --text:          #1f2328;
-  --text-muted:    #8c5572;
+  /* Warm-paper neutrals mirror styles/base.css so the popup reads as the same
+   * product; rose is reserved for the accent (logo, CTA, active toggle). */
+  --bg:            #faf9f7;
+  --bg-2:          #f4f2ee;
+  --bg-3:          #efece6;
+  --border:        #e4dfd6;
+  --text:          #1c1a18;
+  --text-muted:    #6e6862;
   --accent:        #ed4588;
   --accent-strong: #d81b60;
-  --accent-bg:     #fdf2f7;
-  --shadow:        0 1px 3px rgba(216,27,96,.08);
+  --accent-bg:     #fbe7ef;
+  --shadow:        0 1px 3px rgba(0,0,0,.08);
   --radius:        10px;
   --font-sans:     -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* Dark theme — synced with the main app via data-fv-theme (set in popup.ts) */
 [data-fv-theme="github-dark"] {
-  --bg:            #1a0e16;
-  --bg-2:          #2a1220;
-  --bg-3:          #3a0d22;
-  --border:        #3d1c2c;
-  --text:          #f5e8ef;
-  --text-muted:    #c89aaf;
+  /* Warm near-black, mirroring styles/base.css dark theme. */
+  --bg:            #171317;
+  --bg-2:          #211a20;
+  --bg-3:          #2a2228;
+  --border:        #332a31;
+  --text:          #ece4ea;
+  --text-muted:    #9a8f96;
   --accent:        #f56fa6;
   --accent-strong: #d81b60;
-  --accent-bg:     #2a1220;
+  --accent-bg:     #3a1c2c;
   --shadow:        0 1px 3px rgba(0,0,0,.3);
 }
 
@@ -89,88 +92,19 @@ body {
   padding: 10px 16px;
   border: none;
   border-radius: 8px;
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+  background: var(--accent);
   color: #fff;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(216,27,96,.35), 0 0 0 1px rgba(216,27,96,.25);
+  box-shadow: 0 1px 3px rgba(216,27,96,.25), 0 0 0 1px rgba(216,27,96,.18);
   transition: transform .1s ease, box-shadow .18s ease, filter .18s ease;
 }
 .popup-action:hover {
   filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(216,27,96,.45), 0 0 0 1px rgba(216,27,96,.35);
+  box-shadow: 0 3px 8px rgba(216,27,96,.35), 0 0 0 1px rgba(216,27,96,.28);
 }
 .popup-action:active { transform: translateY(0); }
 .popup-action-arrow { font-size: 14px; }
-
-.section-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-/* Format toggles */
-.format-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  margin: 0 -10px;
-  border-radius: 6px;
-  transition: background .15s ease;
-}
-.format-row:hover {
-  background: var(--accent-bg);
-}
-/* Faint separator between rows — only between items, not above the first.
- * Kept subtle (≈35% border colour) so it groups without dominating. */
-.format-row + .format-row {
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--border) 50%, transparent);
-}
-/* On hover the row's rounded background should sit above the hairline so the
- * highlight reads as a clean pill, not a bisected one. */
-.format-row:hover { box-shadow: none; }
-
-.format-name {
-  font-size: 12px;
-  color: var(--text);
-}
-
-/* Toggle switch */
-.toggle-switch {
-  position: relative;
-  width: 32px; height: 18px;
-  flex-shrink: 0;
-}
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-track {
-  position: absolute;
-  inset: 0;
-  background: var(--bg-3);
-  border-radius: 9px;
-  cursor: pointer;
-  transition: background .15s, border-color .15s, box-shadow .15s;
-  border: 1px solid var(--border);
-}
-.toggle-switch input:checked + .toggle-track {
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
-  border-color: var(--accent-strong);
-  box-shadow: 0 0 0 1px rgba(237,69,136,.2);
-}
-.toggle-track::after {
-  content: '';
-  position: absolute;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  top: 2px; left: 2px;
-  transition: transform .15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,.2);
-}
-.toggle-switch input:checked + .toggle-track::after { transform: translateX(14px); }

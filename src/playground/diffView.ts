@@ -33,12 +33,24 @@ export function renderDiffPanels(options: { onChange: () => void }): DiffPanelsA
   const bar = document.createElement('div');
   bar.className = 'fv-diff-bar';
 
-  const btnSwap = mkBtn(t('⇄ 交换两侧', '⇄ Swap sides'));
+  const btnPrev = mkBtn('↑');
+  btnPrev.className = 'fv-btn fv-pg-textbtn fv-diff-nav';
+  btnPrev.title = t('上一个改动 (Alt+↑)', 'Previous change (Alt+↑)');
+  const btnNext = mkBtn('↓');
+  btnNext.className = 'fv-btn fv-pg-textbtn fv-diff-nav';
+  btnNext.title = t('下一个改动 (Alt+↓)', 'Next change (Alt+↓)');
+  const navCount = document.createElement('span');
+  navCount.className = 'fv-diff-nav-count';
+
+  const btnSwap = mkBtn(t('⇄ 交换', '⇄ Swap'));
   const btnAllL = mkBtn(t('全部用左 →', 'Apply all left →'));
   const btnAllR = mkBtn(t('← 全部用右', '← Apply all right'));
+  const btnWs   = mkBtn(t('忽略空白', 'Ignore whitespace'));
+  btnWs.className = 'fv-btn fv-pg-textbtn fv-diff-toggle';
+  btnWs.title = t('比较时忽略行尾空白', 'Ignore trailing whitespace when comparing');
   const stats   = document.createElement('span');
   stats.className = 'fv-diff-stats';
-  bar.append(btnAllR, btnAllL, btnSwap, stats);
+  bar.append(btnPrev, btnNext, navCount, btnAllR, btnAllL, btnSwap, btnWs, stats);
 
   // ── Body: left | center | right ────────────────────────────
   const body = document.createElement('div');
@@ -65,11 +77,13 @@ export function renderDiffPanels(options: { onChange: () => void }): DiffPanelsA
   const left  = leftSide.editor;
   const right = rightSide.editor;
   let lastHunks: HunkRange[] = [];
+  let ignoreWS = false;     // "ignore whitespace" toggle — strip trailing WS when comparing
+  let hunkIdx  = -1;        // current change-hunk for ↑/↓ navigation (-1 = not yet navigated)
 
   function refresh(): void {
     const a = splitNoTrailing(left.value);
     const b = splitNoTrailing(right.value);
-    const ops    = diffLines(a, b);
+    const ops    = diffLines(a, b, ignoreWS ? (s) => s.replace(/[ \t]+$/, '') : undefined);
     const c      = countStats(ops);
     const hunks  = groupHunks(ops);
 
@@ -91,6 +105,11 @@ export function renderDiffPanels(options: { onChange: () => void }): DiffPanelsA
     // Center accept buttons per change hunk
     lastHunks = collectChangeRanges(hunks);
     paintCenter(centerInner, lastHunks, leftSide);
+
+    // Keep the navigation index valid after a re-diff, then refresh the counter.
+    if (lastHunks.length > 0) hunkIdx = Math.min(Math.max(0, hunkIdx), lastHunks.length - 1);
+    else hunkIdx = -1;
+    updateNavCount();
   }
 
   // ── Apply-hunk handlers ────────────────────────────────────
@@ -143,6 +162,52 @@ export function renderDiffPanels(options: { onChange: () => void }): DiffPanelsA
     refresh();
   });
 
+  // ── Whitespace toggle ──────────────────────────────────────
+  btnWs.addEventListener('click', () => {
+    ignoreWS = !ignoreWS;
+    btnWs.classList.toggle('active', ignoreWS);
+    refresh();
+  });
+
+  // ── Change navigation (↑/↓ buttons + Alt+↑/↓) ─────────────
+  btnPrev.addEventListener('click', () => navTo(hunkIdx - 1));
+  btnNext.addEventListener('click', () => navTo(hunkIdx + 1));
+  root.addEventListener('keydown', (e) => {
+    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    navTo(e.key === 'ArrowUp' ? hunkIdx - 1 : hunkIdx + 1);
+  });
+
+  // Measure the live row + title height (font-size can change at runtime).
+  function measureRows(): { rowH: number; titleH: number } {
+    const ln = leftSide.gutterInner.querySelector<HTMLElement>('.fv-diff-ln');
+    const title = leftSide.root.querySelector<HTMLElement>('.fv-diff-side-title');
+    return { rowH: ln?.offsetHeight || 20, titleH: title?.offsetHeight || 0 };
+  }
+
+  function navTo(idx: number): void {
+    if (lastHunks.length === 0) return;
+    hunkIdx = (idx + lastHunks.length) % lastHunks.length; // wrap around
+    updateNavCount();
+    const r = lastHunks[hunkIdx];
+    const m = measureRows();
+    // Bring the hunk's first changed line to ~the second visible row.
+    const ln = Math.max(1, r.leftStart);
+    left.scrollTop = Math.max(0, (ln - 1) * m.rowH - m.rowH);
+    // Brief flash on the matching centre apply-group so the eye finds it.
+    const group = centerInner.children[hunkIdx] as HTMLElement | undefined;
+    if (group) {
+      group.classList.remove('fv-diff-flash');
+      void group.offsetWidth; // restart the animation if still running
+      group.classList.add('fv-diff-flash');
+      setTimeout(() => group.classList.remove('fv-diff-flash'), 900);
+    }
+  }
+
+  function updateNavCount(): void {
+    navCount.textContent = lastHunks.length === 0 ? '' : `${hunkIdx + 1} / ${lastHunks.length}`;
+  }
+
   return { root, left, right, refresh };
 }
 
@@ -176,7 +241,7 @@ function mkSide(which: 'left' | 'right', title: string): SidePanel {
   textWrap.className = 'fv-diff-textwrap';
 
   const bg = document.createElement('div');
-  bg.className = 'fv-diff-bg';
+  bg.className = 'fv-diff-bg fv-diff-bg-' + which;
 
   const editor = document.createElement('textarea');
   editor.className = 'fv-diff-editor';
@@ -336,12 +401,20 @@ function paintCenter(center: HTMLElement, ranges: HunkRange[], leftSide: SidePan
   if (!sample) return;
   const rowH = sample.offsetHeight || 20;
   const padTop = parseFloat(getComputedStyle(leftSide.bg).paddingTop || '0') || 0;
+  // The centre column has no title bar (the sides do), so its origin sits one
+  // title-height above the editor content. Add that height to lift button
+  // positions into the editor's coordinate space.
+  const titleEl = leftSide.root.querySelector<HTMLElement>('.fv-diff-side-title');
+  const titleH = titleEl?.offsetHeight || 0;
 
   ranges.forEach((r, i) => {
-    // Position at the vertical center of the change hunk on the LEFT side
+    // Vertical centre of the change hunk, in editor-content space, then lifted
+    // by the title height into centre-column space. The group is centred on
+    // this point via translate(-50%, -50%) in CSS.
     const startLine = Math.max(1, r.leftStart);
     const endLine   = Math.max(startLine, r.leftEnd);
-    const top = padTop + ((startLine - 1) + (endLine - startLine + 1) / 2) * rowH - rowH / 2;
+    const count = endLine - startLine + 1;
+    const top = titleH + padTop + ((startLine - 1) + count / 2) * rowH;
 
     const group = document.createElement('div');
     group.className = 'fv-diff-hunk-actions';

@@ -1,6 +1,8 @@
 // Playground page — paste any text and format it on the fly.
 
 import { setupPage, copyText, injectStyles } from '../ui/common';
+import { enableSmartSelection } from '../ui/selection';
+import { attachTextareaHighlight } from '../ui/textarea-highlight';
 import { t, isZh } from '../ui/i18n';
 import { cycleFontSize, getStoredFontSize, fontSizeLabel, FontSize } from '../ui/fontSize';
 
@@ -82,12 +84,11 @@ let input!: HTMLTextAreaElement;
 let output!: HTMLDivElement;
 let outputHeader!: HTMLElement;
 let chips!: HTMLElement;
+let chipsTrack: HTMLElement | null = null;
 let copyBtn!: HTMLButtonElement;
 let split!: HTMLElement;
 let inputScroll!: HTMLElement;
 let currentMode: Mode = 'json';
-// Markdown scroll-sync: maps source line index → output block offsetTop.
-let mdLineMap: { line: number; top: number }[] = [];
 
 // Cached cumulative offsetTops of each gutter row (in content-scroll pixels).
 // Refreshed by attachWrappedGutter; consumed by markdownScrollSync via binary
@@ -106,12 +107,31 @@ let memoTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshInputGutter: (() => void) | null = null;
 
 let enabledFeatures: Set<string> = new Set();
+let moduleOrder: string[] = [];        // ordered module keys (drives the tab row order)
+let disabledSet: Set<string> = new Set();
+let settingsBtn: HTMLButtonElement | null = null;
+let settingsPanel: HTMLElement | null = null;
 
-async function loadEnabledFeatures(): Promise<void> {
-  const data = await chrome.storage.local.get('disabledFormats');
-  const disabled = new Set((data['disabledFormats'] as string[]) ?? []);
-  const all = ['json','markdown','sql','translate','url','base64','diff','qr','memo'];
-  enabledFeatures = new Set(all.filter((id) => !disabled.has(id)));
+// Module order + enabled state are managed inside the Playground now (the
+// popup's feature list was removed). `disabledFormats` stays the source of
+// truth for disabled IDs — the content script also reads it to skip rendering
+// those file formats — and `pg_order` holds the tab order. Both are validated
+// and cleaned of ghost entries on load.
+async function loadFeatures(): Promise<void> {
+  const data = await chrome.storage.local.get(['disabledFormats', 'pg_order']);
+  const storedOrder = (data['pg_order'] as string[]) ?? [];
+  const orderSet = new Set(storedOrder);
+  const orderValid =
+    storedOrder.length === CANON_MODULES.length &&
+    CANON_MODULES.every((k) => orderSet.has(k));
+  moduleOrder = orderValid ? storedOrder : [...CANON_MODULES];
+  const rawDisabled = (data['disabledFormats'] as string[]) ?? [];
+  const known = new Set(CANON_MODULES);
+  disabledSet = new Set(rawDisabled.filter((id) => known.has(id)));
+  enabledFeatures = new Set(moduleOrder.filter((k) => !disabledSet.has(k)));
+  if (!orderValid || disabledSet.size !== rawDisabled.length) {
+    await chrome.storage.local.set({ disabledFormats: [...disabledSet], pg_order: moduleOrder });
+  }
 }
 
 const ALL_LABELS: { key: Mode; zh: string; en: string }[] = [
@@ -126,24 +146,188 @@ const ALL_LABELS: { key: Mode; zh: string; en: string }[] = [
   { key: 'memo',      zh: '备忘录',       en: 'Memo' },
 ];
 
+// Canonical module order + set, derived from ALL_LABELS (single source).
+const CANON_MODULES: string[] = ALL_LABELS.map((l) => l.key);
+
 function rebuildChips(): void {
-  loadEnabledFeatures().then(() => {
-    const visible = ALL_LABELS.filter((l) => enabledFeatures.has(l.key));
-    chips.innerHTML = '';
-    visible.forEach(({ key, zh, en }) => {
-      const c = document.createElement('button');
-      c.className = 'fv-pg-chip';
-      c.dataset.mode = key;
-      c.textContent = isZh() ? zh : en;
-      c.addEventListener('click', () => switchMode(key));
-      chips.appendChild(c);
-    });
-    if (!visible.some((l) => l.key === currentMode)) {
-      switchMode(visible[0].key);
-    } else {
-      updateChips();
-    }
+  loadFeatures().then(renderChips);
+}
+
+// Render the module tab row in the stored order (enabled modules only), then
+// re-append the settings gear so it always sits at the right end of the row.
+function renderChips(): void {
+  const track = chipsTrack;
+  if (!track) return;
+  const visible = moduleOrder
+    .map((k) => ALL_LABELS.find((l) => l.key === k))
+    .filter((l): l is { key: Mode; zh: string; en: string } => !!l && enabledFeatures.has(l.key));
+  track.innerHTML = '';
+  visible.forEach(({ key, zh, en }) => {
+    const c = document.createElement('button');
+    c.className = 'fv-pg-chip';
+    c.dataset.mode = key;
+    c.textContent = isZh() ? zh : en;
+    c.addEventListener('click', () => switchMode(key));
+    track.appendChild(c);
   });
+  if (!visible.some((l) => l.key === currentMode)) {
+    switchMode(visible[0]?.key ?? 'json');
+  } else {
+    updateChips();
+  }
+}
+
+// ── Module settings (gear at the right end of the tab row) ──────
+// Popover listing every module in order: drag rows to reorder, toggle to
+// enable/disable. Persists to disabledFormats + pg_order and re-renders chips.
+const GEAR_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37 1 .608 2.296.07 2.572-1.065z"/>' +
+  '<circle cx="12" cy="12" r="3"/></svg>';
+
+function buildSettings(): void {
+  settingsBtn = document.createElement('button');
+  settingsBtn.className = 'fv-pg-chip fv-pg-settings-btn';
+  settingsBtn.innerHTML = GEAR_SVG;
+  settingsBtn.title = t('功能管理', 'Manage modules');
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();             // don't let the document handler close it straight away
+    toggleSettings();
+  });
+
+  settingsPanel = document.createElement('div');
+  settingsPanel.className = 'fv-pg-settings';
+  settingsPanel.style.display = 'none';
+  const head = document.createElement('div');
+  head.className = 'fv-pg-settings-head';
+  head.textContent = t('拖动排序 · 点击开关', 'Drag to reorder · toggle on/off');
+  settingsPanel.appendChild(head);
+  const list = document.createElement('div');
+  list.className = 'fv-pg-settings-list';
+  settingsPanel.appendChild(list);
+  wireSettingsList(list);
+  document.body.appendChild(settingsPanel);
+
+  // Close on outside click (the gear stops propagation, so it toggles instead).
+  document.addEventListener('click', (e) => {
+    if (!settingsPanel || settingsPanel.style.display === 'none') return;
+    if (settingsPanel.contains(e.target as Node) || e.target === settingsBtn) return;
+    closeSettings();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && settingsPanel && settingsPanel.style.display !== 'none') closeSettings();
+  });
+}
+
+function toggleSettings(): void {
+  if (!settingsPanel) return;
+  if (settingsPanel.style.display === 'none') openSettings(); else closeSettings();
+}
+
+function openSettings(): void {
+  if (!settingsPanel || !settingsBtn) return;
+  renderSettingsList();
+  const r = settingsBtn.getBoundingClientRect();
+  settingsPanel.style.top = `${r.bottom + 6}px`;
+  settingsPanel.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+  settingsPanel.style.display = '';
+  settingsPanel.classList.remove('fv-overlay-in');
+  void settingsPanel.offsetWidth; // restart the entrance animation
+  settingsPanel.classList.add('fv-overlay-in');
+}
+
+function closeSettings(): void {
+  if (settingsPanel) settingsPanel.style.display = 'none';
+}
+
+function renderSettingsList(): void {
+  if (!settingsPanel) return;
+  const list = settingsPanel.querySelector<HTMLElement>('.fv-pg-settings-list');
+  if (!list) return;
+  list.innerHTML = '';
+  moduleOrder.forEach((key) => {
+    const label = ALL_LABELS.find((l) => l.key === key);
+    if (!label) return;
+    const row = document.createElement('div');
+    row.className = 'fv-pg-settings-row' + (disabledSet.has(key) ? ' is-disabled' : '');
+    row.dataset.key = key;
+    row.draggable = true;
+
+    const handle = document.createElement('span');
+    handle.className = 'fv-pg-settings-handle';
+    handle.textContent = '⋮⋮';
+
+    const name = document.createElement('span');
+    name.className = 'fv-pg-settings-name';
+    name.textContent = isZh() ? label.zh : label.en;
+
+    const sw = document.createElement('label');
+    sw.className = 'fv-pg-toggle';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = !disabledSet.has(key);
+    const track = document.createElement('span');
+    track.className = 'fv-pg-toggle-track';
+    sw.append(input, track);
+    input.addEventListener('change', () => {
+      if (input.checked) {
+        disabledSet.delete(key);
+      } else {
+        // Never allow turning off the last enabled module.
+        const remaining = moduleOrder.filter((k) => !disabledSet.has(k) && k !== key);
+        if (remaining.length === 0) { input.checked = true; return; }
+        disabledSet.add(key);
+      }
+      row.classList.toggle('is-disabled', disabledSet.has(key));
+      void persistFeatures();
+    });
+
+    row.append(handle, name, sw);
+    list.appendChild(row);
+  });
+}
+
+// HTML5 drag-and-drop reorder within the settings list.
+function wireSettingsList(list: HTMLElement): void {
+  let dragging = false;
+  list.addEventListener('dragstart', (e) => {
+    const row = (e.target as HTMLElement).closest('.fv-pg-settings-row') as HTMLElement | null;
+    if (!row) return;
+    dragging = true;
+    row.classList.add('dragging');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  list.addEventListener('dragover', (e) => {
+    if (!dragging) return;
+    const row = (e.target as HTMLElement).closest('.fv-pg-settings-row') as HTMLElement | null;
+    if (!row) return;
+    e.preventDefault();
+    const moved = list.querySelector('.dragging');
+    if (!moved || moved === row) return;
+    const rect = row.getBoundingClientRect();
+    if (e.clientY > rect.top + rect.height / 2) row.after(moved);
+    else row.before(moved);
+  });
+  const finish = (): void => {
+    list.querySelector('.dragging')?.classList.remove('dragging');
+    if (dragging) { dragging = false; commitSettingsOrder(); }
+  };
+  list.addEventListener('drop', (e) => { e.preventDefault(); finish(); });
+  list.addEventListener('dragend', finish);
+}
+
+function commitSettingsOrder(): void {
+  if (!settingsPanel) return;
+  moduleOrder = Array.from(
+    settingsPanel.querySelectorAll<HTMLElement>('.fv-pg-settings-row'),
+  ).map((r) => r.dataset.key!);
+  void persistFeatures();
+}
+
+async function persistFeatures(): Promise<void> {
+  await chrome.storage.local.set({ disabledFormats: [...disabledSet], pg_order: moduleOrder });
+  enabledFeatures = new Set(moduleOrder.filter((k) => !disabledSet.has(k)));
+  renderChips();
 }
 
 // ── Boot ──────────────────────────────────────────────────────
@@ -151,6 +335,7 @@ function rebuildChips(): void {
   await injectStyles();
   setupPage(t('Plain View 工作台', 'Plain View Playground'));
   document.body.classList.add('fv-playground-body');
+  enableSmartSelection();
 
   try {
     const data = await chrome.storage.local.get(STORAGE_KEY);
@@ -161,7 +346,7 @@ function rebuildChips(): void {
   if (state.mode) currentMode = state.mode;
   if (!state.inputs) state.inputs = {};
 
-  await loadEnabledFeatures();
+  await loadFeatures();
 
   // Default to first enabled feature if saved mode is disabled
   if (!enabledFeatures.has(currentMode as string)) {
@@ -204,7 +389,7 @@ function rebuildChips(): void {
 
 // Rebuild chips when the popup toggles features
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes['disabledFormats']) rebuildChips();
+  if (changes['disabledFormats'] || changes['pg_order']) rebuildChips();
   // C4: cross-tab sync. When another tab writes playground state or memo
   // data, merge it in. For state.inputs we only take drafts of modes that
   // aren't currently active (so we never clobber what the user is typing
@@ -348,13 +533,20 @@ function build(): void {
   const left = document.createElement('div');
   left.className = 'fv-toolbar-left';
 
+  const wordmark = document.createElement('span');
+  wordmark.className = 'fv-wordmark';
+  wordmark.textContent = 'plain.view';
+  left.appendChild(wordmark);
+
   const right = document.createElement('div');
   right.className = 'fv-toolbar-right';
 
   copyBtn = iconBtn(ICONS.copy,  t('复制结果', 'Copy result'));
   copyBtn.addEventListener('click', () => {
     // memo mode: copy the active memo's content directly.
-    const txt = currentMode === 'memo' ? (currentMemo()?.content ?? null) : currentOutputText();
+    const txt = currentMode === 'memo' ? (currentMemo()?.content ?? null)
+      : currentMode === 'markdown' ? (currentMd()?.content ?? null)
+      : currentOutputText();
     if (txt == null || txt === '') return;
     copyText(txt).then(() => {
       const orig = copyBtn.innerHTML;
@@ -369,9 +561,11 @@ function build(): void {
     // is overwritten on the next debounced flush, so it can't be undone.
     const msg = currentMode === 'memo'
       ? t('确定清空当前备忘录的标题和内容吗?', 'Clear this memo\'s title and content?')
-      : currentMode === 'diff'
-        ? t('确定清空两侧对比文本吗?', 'Clear both sides of the comparison?')
-        : t('确定清空当前输入内容吗?', 'Clear the current input?');
+      : currentMode === 'markdown'
+        ? t('确定清空当前文档的标题和内容吗?', 'Clear this document\'s title and content?')
+        : currentMode === 'diff'
+          ? t('确定清空两侧对比文本吗?', 'Clear both sides of the comparison?')
+          : t('确定清空当前输入内容吗?', 'Clear the current input?');
     if (!window.confirm(msg)) return;
     if (currentMode === 'memo') {
       const f = currentMemo();
@@ -383,6 +577,17 @@ function build(): void {
         renderMemoList();
       }
       saveMemo();
+    } else if (currentMode === 'markdown') {
+      const f = currentMd();
+      if (f && mdTitleEl && mdEditEl) {
+        mdTitleEl.value = '';
+        mdEditEl.value = '';
+        f.title = '';
+        f.content = '';
+        renderMdList();
+        renderMdPreview();
+      }
+      saveMd();
     } else if (currentMode === 'diff') {
       diffLeft.value  = '';
       diffRight.value = '';
@@ -428,20 +633,17 @@ function build(): void {
   document.body.append(toolbar);
 
   // ── Chips row ───────────────────────────────────────────────
+  // The bar holds a scrollable track of module tabs with the settings gear as
+  // a sibling, so the gear stays pinned at the far right instead of scrolling.
   chips = document.createElement('div');
   chips.className = 'fv-pg-chips';
-  ALL_LABELS.filter((l) => enabledFeatures.has(l.key)).forEach(({ key, zh, en }) => {
-    const c = document.createElement('button');
-    c.className = 'fv-pg-chip';
-    c.dataset.mode = key;
-    c.textContent = isZh() ? zh : en;
-    c.addEventListener('click', () => {
-      switchMode(key);
-    });
-    chips.appendChild(c);
-  });
+  chipsTrack = document.createElement('div');
+  chipsTrack.className = 'fv-pg-chips-track';
+  chips.appendChild(chipsTrack);
+  buildSettings();            // creates the gear (settingsBtn) + popover
+  chips.appendChild(settingsBtn!);
   document.body.append(chips);
-  updateChips();
+  renderChips();
 
   // ── Split: input pane | output pane ─────────────────────────
   split = document.createElement('div');
@@ -574,7 +776,7 @@ function build(): void {
     reader.onload = () => {
       const text = reader.result as string;
       if (mode) {
-        if (mode !== 'diff' && mode !== 'memo') {
+        if (mode !== 'diff' && mode !== 'memo' && mode !== 'markdown') {
           if (state.inputs) state.inputs[mode] = text;
           scheduleSave();
         }
@@ -667,6 +869,7 @@ function build(): void {
 
   split.append(inputPane, paneDivider, outputPane);
   document.body.append(split);
+  attachTextareaHighlight(input);
 
   // ── B1: full-pane drop zone for file import ──────────────────
   // A semi-transparent overlay announces "drop to import" while a file is
@@ -754,53 +957,6 @@ function build(): void {
     }
   });
 
-  // Markdown scroll sync (input → output only), content-based via source-line
-  // mapping. Each rendered block carries a data-line attribute; we find which
-  // block the input's currently-visible line belongs to and scroll the output
-  // to it. Empty source lines map to the same block, so scrolling through
-  // blank lines keeps the output stable instead of jumping.
-  function markdownScrollSync(): void {
-    if (currentMode !== 'markdown' || mdLineMap.length === 0) return;
-
-    // Determine the visible source line via binary search over the cached
-    // cumulative gutter row heights (gutterTops). This is O(log N) and reads
-    // no layout at all — reading offsetTop per row here is what made scrolling
-    // multi-thousand-line docs janky (each read can force a reflow).
-    const n = gutterTops.length;
-    if (n === 0) return;
-    const scrollY = inputScroll.scrollTop;
-    let visibleLine = 0;
-    if (scrollY > 0) {
-      let lo = 0, hi = n - 1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (gutterTops[mid] <= scrollY) { visibleLine = mid; lo = mid + 1; }
-        else { hi = mid - 1; }
-      }
-    }
-
-    // Find the output blocks surrounding visibleLine for interpolation.
-    // mdLineMap is sorted ascending by line, so binary-search the largest
-    // entry with line <= visibleLine (prev); next is the entry after it.
-    let prev = mdLineMap[0];
-    let next = mdLineMap[mdLineMap.length - 1];
-    let lo = 0, hi = mdLineMap.length - 1, prevIdx = 0;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (mdLineMap[mid].line <= visibleLine) { prevIdx = mid; lo = mid + 1; }
-      else { hi = mid - 1; }
-    }
-    prev = mdLineMap[prevIdx];
-    if (prevIdx + 1 < mdLineMap.length) next = mdLineMap[prevIdx + 1];
-    const span = next.line - prev.line;
-    if (span > 0) {
-      const ratio = Math.max(0, Math.min(1, (visibleLine - prev.line) / span));
-      output.scrollTop = Math.round(prev.top + ratio * (next.top - prev.top));
-    } else {
-      output.scrollTop = prev.top;
-    }
-  }
-  inputScroll.addEventListener('scroll', markdownScrollSync);
 
   // Relay wheel events: if the input is at its boundary and the user keeps
   // scrolling, forward the delta to the output pane.
@@ -819,6 +975,7 @@ function build(): void {
   // Diff shell: separate layout (hidden by default).
   buildDiffShell();
   buildMemoShell();
+  buildMdShell();
 }
 
 function setOutputHeader(content: Node | null, stats?: { lines: number; chars: number }): void {
@@ -851,7 +1008,7 @@ function resetOutputHeader(): void {
 }
 
 function updateChips(): void {
-  chips.querySelectorAll<HTMLElement>('.fv-pg-chip').forEach((c) => {
+  chips.querySelectorAll<HTMLElement>('.fv-pg-chip[data-mode]').forEach((c) => {
     c.classList.toggle('active', c.dataset.mode === currentMode);
   });
 }
@@ -863,7 +1020,7 @@ function switchMode(mode: Mode): void {
   state.mode = mode;
   // Reset any single-pane maximize when changing modes.
   split.classList.remove('fv-pg-max-input', 'fv-pg-max-output');
-  if (mode !== 'diff' && mode !== 'memo') {
+  if (mode !== 'diff' && mode !== 'memo' && mode !== 'markdown') {
     input.value = (state.inputs && state.inputs[mode]) ?? '';
     // Restore the textarea height + gutter in ONE pass. We used to dispatch a
     // synthetic 'input' event here, but that re-ran the full input listener
@@ -908,6 +1065,8 @@ function updateCopyBtnState(): void {
   let hasContent: boolean;
   if (currentMode === 'memo') {
     hasContent = !!currentMemo()?.content;
+  } else if (currentMode === 'markdown') {
+    hasContent = !!currentMd()?.content;
   } else if (currentMode === 'diff') {
     hasContent = false; // diff has no single "result" to copy
   } else {
@@ -920,7 +1079,8 @@ function updateCopyBtnState(): void {
 function runFormat(skipExpensive?: boolean): void {
   toggleDiffShell(currentMode === 'diff');
   toggleMemoShell(currentMode === 'memo');
-  if (currentMode === 'diff' || currentMode === 'memo') return;
+  toggleMdShell(currentMode === 'markdown');
+  if (currentMode === 'diff' || currentMode === 'memo' || currentMode === 'markdown') return;
 
   const raw = input.value;
   lastResultText = null;
@@ -952,7 +1112,6 @@ function runFormat(skipExpensive?: boolean): void {
   try {
     switch (currentMode) {
       case 'json':      renderJson(raw); break;
-      case 'markdown':  renderMarkdown(raw); break;
       case 'sql':       renderSql(raw); break;
       case 'base64':    renderBase64(raw); break;
       case 'url':       renderUrl(raw); break;
@@ -983,7 +1142,7 @@ function showEmptyOutput(): void {
   wrap.innerHTML = '<div class="fv-pg-empty-icon">'
     + '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12a0 0 0 0 1 0 0H4z"/><path d="M16 4v4h4"/></svg>'
     + '</div>'
-    + '<div class="fv-pg-empty-text">' + t('在左侧粘贴内容，即可在此查看结果', 'Paste content on the left to see formatted output here') + '</div>';
+    + '<div class="fv-pg-empty-text">' + t('左侧粘贴内容，右侧即刻呈现', 'Paste on the left — it renders here instantly') + '</div>';
   output.appendChild(wrap);
 }
 
@@ -1269,36 +1428,6 @@ function escapeHtml(s: string): string {
 }
 function escapePunct(s: string): string {
   return escapeHtml(s);
-}
-
-function renderMarkdown(raw: string): void {
-  const root = document.createElement('div');
-  root.className = 'fv-md-root';
-  root.innerHTML = mdToHtml(raw);
-  output.appendChild(root);
-  // Copy/stats use the source Markdown rather than root.innerText. innerText
-  // forces a full layout + style recalc of the rendered tree and was a major
-  // cost on multi-thousand-line docs; the source is what users actually want
-  // when copying out of a Markdown viewer anyway.
-  lastResultText = raw;
-
-  // Build the source-line → output-scrollTop map for scroll sync.
-  // Read the output's border-box rect and its padding-top first (a single
-  // batched read), then read every block's rect in one tight loop with no
-  // interleaved writes — so the browser only lays out once for all of them.
-  output.scrollTop = 0;
-  const outRect = output.getBoundingClientRect();
-  const outPadTop = parseFloat(getComputedStyle(output).paddingTop) || 0;
-  const blocks = root.querySelectorAll<HTMLElement>('[data-line]');
-  mdLineMap = new Array(blocks.length);
-  for (let i = 0; i < blocks.length; i++) {
-    const el = blocks[i];
-    const elRect = el.getBoundingClientRect();
-    mdLineMap[i] = {
-      line: parseInt(el.dataset.line || '0', 10),
-      top: Math.max(0, elRect.top - outRect.top - outPadTop),
-    };
-  }
 }
 
 function renderSql(raw: string): void {
@@ -2206,6 +2335,7 @@ function buildMemoShell(): void {
   body.append(sidebar, divider, editor);
   memoShell.appendChild(body);
   document.body.appendChild(memoShell);
+  attachTextareaHighlight(bodyTa);
 
   // ── Sidebar collapse/expand toggle ──────────────────────────
   // The sidebar width is transitioned via CSS (.fv-memo-sidebar.collapsed),
@@ -2280,5 +2410,471 @@ function toggleMemoShell(on: boolean): void {
     memoShell.classList.remove('fv-pg-fade');
     void memoShell.offsetWidth;
     memoShell.classList.add('fv-pg-fade');
+  }
+}
+
+// ── Markdown module: file-managed shell with edit / split / preview modes ──
+// Mirrors the memo module's shape (sidebar file list + editor) but the editor
+// is a Markdown textarea with a live-rendered preview and three view modes.
+type MdFile = {
+  id: string; title: string; content: string;
+  updatedAt: number;
+  createdAt: number;   // set once at creation; never mutated
+};
+
+let mdShell: HTMLElement | null = null;
+let mdFiles: MdFile[] = [];
+let mdActiveId: string | null = null;
+let mdDragId: string | null = null;
+let mdListEl: HTMLElement | null = null;
+let mdTitleEl: HTMLInputElement | null = null;
+let mdEditEl: HTMLTextAreaElement | null = null;
+let mdPreviewEl: HTMLElement | null = null;
+let mdWorkspaceEl: HTMLElement | null = null;
+type MdMode = 'edit' | 'split' | 'preview';
+let mdMode: MdMode = 'split';
+let mdTimer: ReturnType<typeof setTimeout> | null = null;
+
+const MD_KEY = 'pg_md_files';
+const MD_CUR_KEY = 'pg_md_cur';
+const MD_MODE_KEY = 'pg_md_mode';
+const MD_COLLAPSED_KEY = 'pg_md_collapsed';
+
+function mdUid(): string { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function currentMd(): MdFile | null {
+  if (!mdActiveId) return null;
+  return mdFiles.find((f) => f.id === mdActiveId) ?? null;
+}
+function flushEditorToMd(): void {
+  const f = currentMd();
+  if (!f || !mdTitleEl || !mdEditEl) return;
+  f.title = mdTitleEl.value;
+  f.content = mdEditEl.value;
+  f.updatedAt = Date.now();
+}
+function saveMd(): void {
+  if (mdTimer) clearTimeout(mdTimer);
+  mdTimer = setTimeout(() => {
+    flushEditorToMd();
+    chrome.storage.local.set({ [MD_KEY]: mdFiles, [MD_CUR_KEY]: mdActiveId }).catch(() => { /* ignore */ });
+  }, 300);
+}
+function renderMdPreview(): void {
+  if (!mdPreviewEl) return;
+  const f = currentMd();
+  mdPreviewEl.innerHTML = mdToHtml(f?.content ?? '');
+}
+function setMdMode(mode: MdMode): void {
+  mdMode = mode;
+  if (mdWorkspaceEl) mdWorkspaceEl.dataset.mode = mode;
+  mdShell?.querySelectorAll<HTMLButtonElement>('.fv-md-mode').forEach((b) => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  chrome.storage.local.set({ [MD_MODE_KEY]: mode }).catch(() => { /* ignore */ });
+}
+function loadMdIntoEditor(f: MdFile): void {
+  if (!mdTitleEl || !mdEditEl) return;
+  mdTitleEl.value = f.title;
+  mdEditEl.value = f.content;
+  renderMdPreview();
+}
+
+function renderMdList(): void {
+  if (!mdListEl) return;
+  mdListEl.textContent = '';
+  for (const f of mdFiles) {
+    const item = document.createElement('div');
+    item.className = 'fv-memo-item' + (f.id === mdActiveId ? ' active' : '');
+    item.draggable = true;
+    item.dataset.id = f.id;
+
+    const icon = document.createElement('span');
+    icon.className = 'fv-memo-icon';
+    icon.textContent = '📄';
+    item.appendChild(icon);
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = (f.title || t('无标题', 'Untitled')) + '.md';
+    item.appendChild(title);
+
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.type = 'button';
+    del.setAttribute('aria-label', t('删除', 'Delete'));
+    del.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h10"/><path d="M5 5V3.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V5"/><path d="M5 5l.7 8a1 1 0 0 0 1 1h2.6a1 1 0 0 0 1-1L11 5"/></svg>';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!window.confirm(t('确定删除此文档？', 'Delete this document?'))) return;
+      deleteMd(f.id);
+    });
+    item.appendChild(del);
+
+    item.addEventListener('click', () => selectMd(f.id));
+    item.addEventListener('dragstart', () => { mdDragId = f.id; item.classList.add('dragging'); });
+    item.addEventListener('dragend', () => {
+      mdDragId = null;
+      item.classList.remove('dragging');
+      mdListEl?.querySelectorAll('.fv-memo-item.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!mdDragId || mdDragId === f.id) return;
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => { item.classList.remove('drag-over'); });
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      if (!mdDragId || mdDragId === f.id) return;
+      const rect = item.getBoundingClientRect();
+      reorderMd(mdDragId, f.id, (e.clientY - rect.top) > rect.height / 2);
+    });
+
+    mdListEl.appendChild(item);
+  }
+}
+function reorderMd(dragId: string, targetId: string, after: boolean): void {
+  const from = mdFiles.findIndex((f) => f.id === dragId);
+  if (from < 0) return;
+  const [moved] = mdFiles.splice(from, 1);
+  const to = mdFiles.findIndex((f) => f.id === targetId);
+  if (to < 0) mdFiles.push(moved);
+  else mdFiles.splice(after ? to + 1 : to, 0, moved);
+  renderMdList();
+  saveMd();
+}
+function selectMd(id: string): void {
+  flushEditorToMd();
+  const f = mdFiles.find((m) => m.id === id);
+  if (!f) return;
+  mdActiveId = id;
+  loadMdIntoEditor(f);
+  renderMdList();
+  saveMd();
+}
+function createMd(): void {
+  flushEditorToMd();
+  const now = Date.now();
+  const f: MdFile = { id: mdUid(), title: '', content: '', updatedAt: now, createdAt: now };
+  mdFiles.unshift(f);
+  mdActiveId = f.id;
+  loadMdIntoEditor(f);
+  renderMdList();
+  saveMd();
+  mdTitleEl?.focus();
+}
+function deleteMd(id: string): void {
+  const idx = mdFiles.findIndex((f) => f.id === id);
+  if (idx < 0) return;
+  mdFiles.splice(idx, 1);
+  if (mdFiles.length === 0) {
+    const now = Date.now();
+    const f: MdFile = { id: mdUid(), title: '', content: '', updatedAt: now, createdAt: now };
+    mdFiles.push(f);
+    mdActiveId = f.id;
+    loadMdIntoEditor(f);
+  } else if (mdActiveId === id) {
+    mdActiveId = mdFiles[0].id;
+    loadMdIntoEditor(mdFiles[0]);
+  }
+  renderMdList();
+  saveMd();
+}
+
+function buildMdShell(): void {
+  mdShell = document.createElement('div');
+  mdShell.className = 'fv-pg-diff-shell fv-md-shell';
+  mdShell.style.display = 'none';
+
+  // ── Top bar ──
+  const bar = document.createElement('div');
+  bar.className = 'fv-pg-diff-bar';
+  bar.style.justifyContent = 'space-between';
+
+  const left = document.createElement('div');
+  left.style.cssText = 'display:flex;align-items:center;gap:12px;';
+
+  // Mode segmented control: 编辑 | 编辑+预览 | 预览
+  const seg = document.createElement('div');
+  seg.className = 'fv-md-modes';
+  const modes: Array<{ key: MdMode; zh: string; en: string }> = [
+    { key: 'edit',    zh: '编辑',     en: 'Edit' },
+    { key: 'split',   zh: '编辑+预览', en: 'Split' },
+    { key: 'preview', zh: '预览',     en: 'Preview' },
+  ];
+  modes.forEach((m) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'fv-md-mode' + (m.key === mdMode ? ' active' : '');
+    b.dataset.mode = m.key;
+    b.textContent = t(m.zh, m.en);
+    b.addEventListener('click', () => setMdMode(m.key));
+    seg.appendChild(b);
+  });
+  // Collapse file-list sidebar (mirrors the memo module).
+  const collapseBtn = document.createElement('button');
+  collapseBtn.type = 'button';
+  collapseBtn.className = 'fv-btn fv-memo-collapse-btn';
+  collapseBtn.dataset.tip = t('收起文件列表', 'Collapse file list');
+  collapseBtn.setAttribute('aria-label', t('收起文件列表', 'Collapse file list'));
+  collapseBtn.setAttribute('aria-pressed', 'false');
+  collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1"/><line x1="6" y1="3" x2="6" y2="13"/></svg>';
+  collapseBtn.addEventListener('click', () => {
+    const collapsed = mdShell!.classList.toggle('md-sidebar-collapsed');
+    collapseBtn.setAttribute('aria-pressed', String(collapsed));
+    chrome.storage.local.set({ [MD_COLLAPSED_KEY]: collapsed }).catch(() => { /* ignore */ });
+  });
+  left.append(collapseBtn, seg);
+  bar.appendChild(left);
+
+  const right = document.createElement('div');
+  right.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+  const fsBtn = mkMdBarBtn('<path d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"/>', t('全屏', 'Fullscreen'), () => {
+    mdShell!.classList.add('md-fullscreen');
+  });
+  right.appendChild(fsBtn);
+
+  // Import .md files
+  const importBtn = mkMdBarBtn('<path d="M8 14V6m3 3-3-3-3 3"/><path d="M2 2h12"/>', t('导入', 'Import'), null);
+  const importInput = document.createElement('input');
+  importInput.type = 'file';
+  importInput.accept = '.md,.markdown,text/markdown,text/plain';
+  importInput.multiple = true;
+  importInput.style.cssText = 'position:absolute;left:-9999px;top:0;opacity:0;';
+  document.body.appendChild(importInput);
+  importInput.addEventListener('change', () => {
+    const files = importInput.files;
+    if (!files || files.length === 0) return;
+    let loaded = 0;
+    const total = files.length;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const now = Date.now();
+        mdFiles.unshift({
+          id: mdUid(),
+          title: file.name.replace(/\.(md|markdown|txt)$/i, ''),
+          content: String(reader.result),
+          updatedAt: now,
+          createdAt: now,
+        });
+        loaded++;
+        if (loaded === total) {
+          // Select the first imported file; persist directly (no flush — we
+          // just wrote mdFiles).
+          mdActiveId = mdFiles[0].id;
+          loadMdIntoEditor(mdFiles[0]);
+          renderMdList();
+          chrome.storage.local.set({ [MD_KEY]: mdFiles, [MD_CUR_KEY]: mdActiveId }).catch(() => { /* ignore */ });
+        }
+      };
+      reader.onerror = () => { loaded++; };
+      reader.readAsText(file);
+    });
+    importInput.value = '';
+  });
+  importBtn.addEventListener('click', () => importInput.click());
+  right.appendChild(importBtn);
+
+  // Export dropdown: current / all
+  const exportWrap = document.createElement('div');
+  exportWrap.style.cssText = 'position:relative;';
+  const exportBtn = mkMdBarBtn('<path d="M8 2v8m-3-3 3 3 3-3"/><path d="M2 10v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3"/>', t('导出', 'Export'), null);
+  exportWrap.appendChild(exportBtn);
+  const exportDrop = document.createElement('div');
+  exportDrop.className = 'fv-memo-export-drop';
+  exportDrop.style.display = 'none';
+  function expItem(label: string, fn: () => void): HTMLButtonElement {
+    const it = document.createElement('button');
+    it.type = 'button';
+    it.className = 'fv-memo-export-item';
+    it.textContent = label;
+    it.addEventListener('click', () => { fn(); exportDrop.style.display = 'none'; });
+    return it;
+  }
+  exportDrop.appendChild(expItem(t('导出当前文档', 'Export current'), () => {
+    const f = currentMd();
+    if (!f) return;
+    const name = (f.title || 'document').replace(/[\\/:*?"<>|]/g, '_').trim() || 'document';
+    mdDownload(name + '.md', f.content, true);
+  }));
+  exportDrop.appendChild(expItem(t('导出所有文档', 'Export all'), () => {
+    if (mdFiles.length === 0) return;
+    mdFiles.forEach((f, i) => {
+      const name = (f.title || ('document-' + (i + 1))).replace(/[\\/:*?"<>|]/g, '_').trim() || ('document-' + (i + 1));
+      setTimeout(() => mdDownload(name + '.md', f.content, false), i * 150);
+    });
+  }));
+  exportBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const show = exportDrop.style.display === 'none';
+    exportDrop.style.display = show ? '' : 'none';
+    if (show) {
+      exportDrop.classList.remove('fv-overlay-in');
+      void exportDrop.offsetWidth;
+      exportDrop.classList.add('fv-overlay-in');
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (exportDrop.style.display === 'none') return;
+    if (exportWrap.contains(e.target as Node)) return;
+    exportDrop.style.display = 'none';
+  });
+  exportWrap.appendChild(exportDrop);
+  right.appendChild(exportWrap);
+
+  bar.appendChild(right);
+  mdShell.appendChild(bar);
+
+  // ── Body: sidebar + editor ──
+  const body = document.createElement('div');
+  body.className = 'fv-md-body';
+
+  const sidebar = document.createElement('div');
+  sidebar.className = 'fv-memo-sidebar';
+  const newSidebarBtn = document.createElement('button');
+  newSidebarBtn.type = 'button';
+  newSidebarBtn.className = 'fv-memo-new';
+  newSidebarBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M8 3v10"/></svg>'
+    + t('新建文档', 'New document');
+  newSidebarBtn.addEventListener('click', () => createMd());
+  sidebar.appendChild(newSidebarBtn);
+  mdListEl = document.createElement('div');
+  mdListEl.className = 'fv-memo-list';
+  sidebar.appendChild(mdListEl);
+
+  const divider = document.createElement('div');
+  divider.className = 'fv-memo-divider';
+
+  const editor = document.createElement('div');
+  editor.className = 'fv-memo-editor';
+
+  const titleBar = document.createElement('div');
+  titleBar.className = 'fv-memo-title-bar';
+  mdTitleEl = document.createElement('input');
+  mdTitleEl.className = 'fv-memo-title';
+  mdTitleEl.placeholder = t('文档标题…', 'Document title…');
+  mdTitleEl.addEventListener('input', () => { flushEditorToMd(); renderMdList(); saveMd(); });
+  titleBar.appendChild(mdTitleEl);
+  editor.appendChild(titleBar);
+
+  // Workspace: textarea (edit) + preview, visibility driven by data-mode.
+  mdWorkspaceEl = document.createElement('div');
+  mdWorkspaceEl.className = 'fv-md-workspace';
+  mdWorkspaceEl.dataset.mode = mdMode;
+
+  mdEditEl = document.createElement('textarea');
+  mdEditEl.className = 'fv-md-edit fv-memo-body';
+  mdEditEl.spellcheck = false;
+  mdEditEl.placeholder = t('在此输入 Markdown…', 'Type Markdown here…');
+  mdEditEl.addEventListener('input', () => { flushEditorToMd(); renderMdPreview(); saveMd(); });
+  // Scroll sync (edit → preview): in split mode, scrolling the editor scrolls
+  // the preview proportionally. Proportional (not source-line-mapped) — cheap
+  // and good enough for an editor/preview pair.
+  mdEditEl.addEventListener('scroll', () => {
+    if (mdMode !== 'split' || !mdPreviewEl || !mdEditEl) return;
+    const em = mdEditEl, pm = mdPreviewEl;
+    const emMax = em.scrollHeight - em.clientHeight;
+    const pmMax = pm.scrollHeight - pm.clientHeight;
+    if (emMax <= 0 || pmMax <= 0) return;
+    pm.scrollTop = Math.min(pmMax, Math.max(0, (em.scrollTop / emMax) * pmMax));
+  });
+  mdEditEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const ta = mdEditEl!;
+    const s = ta.selectionStart, en = ta.selectionEnd;
+    const INDENT = '  ';
+    if (e.shiftKey) {
+      const before = ta.value.slice(0, s);
+      const lineStart = before.lastIndexOf('\n') + 1;
+      if (ta.value.slice(lineStart, lineStart + 2) === INDENT) {
+        ta.setSelectionRange(lineStart, lineStart + 2);
+        document.execCommand('insertText', false, '');
+      }
+    } else {
+      document.execCommand('insertText', false, INDENT);
+    }
+    void en;
+  });
+
+  mdPreviewEl = document.createElement('div');
+  mdPreviewEl.className = 'fv-md-preview fv-md-root';
+
+  mdWorkspaceEl.append(mdEditEl, mdPreviewEl);
+  editor.appendChild(mdWorkspaceEl);
+
+  body.append(sidebar, divider, editor);
+  mdShell.appendChild(body);
+  document.body.appendChild(mdShell);
+
+  // Esc exits fullscreen.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && mdShell?.classList.contains('md-fullscreen')) {
+      mdShell.classList.remove('md-fullscreen');
+    }
+  });
+
+  // ── Load persisted files + mode ──
+  chrome.storage.local.get([MD_KEY, MD_CUR_KEY, MD_MODE_KEY, MD_COLLAPSED_KEY]).then((data) => {
+    const files = data[MD_KEY] as MdFile[] | undefined;
+    if (Array.isArray(files) && files.length > 0) {
+      mdFiles = files;
+    } else {
+      const now = Date.now();
+      mdFiles = [{ id: mdUid(), title: '', content: '', updatedAt: now, createdAt: now }];
+    }
+    const cur = data[MD_CUR_KEY] as string | undefined;
+    mdActiveId = (cur && mdFiles.some((f) => f.id === cur)) ? cur : mdFiles[0].id;
+    const savedMode = data[MD_MODE_KEY] as MdMode | undefined;
+    if (savedMode === 'edit' || savedMode === 'split' || savedMode === 'preview') {
+      setMdMode(savedMode);
+    }
+    if (data[MD_COLLAPSED_KEY]) {
+      mdShell?.classList.add('md-sidebar-collapsed');
+      mdShell?.querySelector('.fv-memo-collapse-btn')?.setAttribute('aria-pressed', 'true');
+    }
+    loadMdIntoEditor(currentMd() ?? mdFiles[0]);
+    renderMdList();
+  }).catch(() => { /* ignore */ });
+}
+
+// Small bar button helper for the Markdown shell: icon + label.
+function mkMdBarBtn(iconPath: string, label: string, onClick: (() => void) | null): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'fv-btn';
+  b.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + iconPath + '</svg>'
+    + '<span style="font-size:12px">' + label + '</span>';
+  if (onClick) b.addEventListener('click', onClick);
+  return b;
+}
+
+// Download a Markdown file. Uses text/markdown MIME and (for single-file
+// export) prompts for the save location so it isn't silently dumped + auto-
+// opened. Batch export (all files) skips the prompt to avoid N dialogs.
+function mdDownload(filename: string, content: string, saveAs: boolean): void {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  if (typeof chrome !== 'undefined' && chrome.downloads) {
+    chrome.downloads.download({ url, filename, saveAs })
+      .catch(() => fallbackAnchorDownload(url, filename));
+  } else {
+    fallbackAnchorDownload(url, filename);
+  }
+}
+
+function toggleMdShell(on: boolean): void {
+  if (!mdShell) return;
+  mdShell.style.display = on ? '' : 'none';
+  const split = document.querySelector<HTMLElement>('.fv-pg-split');
+  if (split) split.style.display = on ? 'none' : '';
+  if (on) {
+    renderMdPreview(); // keep the preview fresh on re-entry
+    mdShell.classList.remove('fv-pg-fade');
+    void mdShell.offsetWidth;
+    mdShell.classList.add('fv-pg-fade');
   }
 }

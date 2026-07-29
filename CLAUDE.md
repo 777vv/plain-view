@@ -11,8 +11,9 @@
 
 - 所有渲染器/解码器都是手写 TypeScript,**无任何运行时依赖**(`dependencies: {}`)
 - 无打包器:`tsc` + `scripts/fix-imports.js`(给相对 import 补 `.js` 后缀)即可出 `dist/`
-- 品牌主色:rose-pink `#ED4588`(focus ring / 链接 / 渐变按钮 / badge)。亮主题 accent `#ed4588`,badge `#d81b60`;暗主题 accent `#f56fa6`
-- 双主题:GitHub Light(默认) / GitHub Dark,存 `localStorage['fv_theme']`
+- 品牌主色:rose-pink `#ED4588`。视觉方向是 **Type Specimen**(暖纸面 + rose 当"墨" + mono 显示体):rose 只在焦点环/活动态/样本标签处克制使用,主按钮是**纯色** rose 实心(不再是渐变)。新增 token:`--fv-font-display`(mono 展示体)、`--rose-brand`/`--rose-ink`(正文级,过 AA)/`--rose-tint`。亮主题正文链接用 `#d81b60`(`#ed4588` 在纸面上不过 AA,只留给大字/UI/焦点)
+- 双主题:**Paper Light**(默认,暖白纸面,自有中性色非 GitHub Primer)/ **Warm Near-Black**(暖近黑,黑里掺品红让 rose 发光;暗色链接是 rose `#f56fa6` 不是 VS Code 青),存 `localStorage['fv_theme']`
+- 文件查看器顶栏(`createToolbar`)现在真正渲染**样本刊头**:格式标签(small-caps rose + 发丝规线)+ 文件名(18px mono 标题)+ 元数据 caption(`{KB} · {行数} 行`,从 `raw` 现算)。之前 `format`/`filename`/`raw` 参数收了没用、左栏空白。工作台顶栏左栏是 `plain.view` wordmark
 
 ## 常用命令
 
@@ -151,6 +152,12 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem; (
   [System.IO.Compression.ZipFile]::OpenRead('release/plain-view.zip')
 ).Entries | Sort-Object FullName | ForEach-Object FullName
 ```
+
+
+## Skills 强制评估（必须遵守）
+
+> **每次用户提问时，UserPromptSubmit Hook 会注入技能评估提示（以 `## 强制技能激活流程` 开头）。必须严格遵循！**
+
 
 ## 行为准则
 

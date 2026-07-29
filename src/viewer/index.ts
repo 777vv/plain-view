@@ -3,6 +3,7 @@
 // file's contents and hand them to the matching renderer.
 
 import { injectStyles } from '../ui/common';
+import { enableSmartSelection } from '../ui/selection';
 
 function showError(msg: string): void {
   document.body.textContent = msg;
@@ -38,4 +39,5 @@ function showError(msg: string): void {
     render: (raw: string, srcPath?: string) => void;
   };
   renderer.render(raw, new URL(src).pathname);
+  enableSmartSelection();
 })();

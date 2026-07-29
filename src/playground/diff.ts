@@ -20,9 +20,14 @@ export interface Hunk {
 
 // ── Myers diff (line-level) ───────────────────────────────────
 // Standard O(ND) edit-script. Inputs are arrays of lines.
-export function diffLines(a: string[], b: string[]): LineChunk[] {
+export function diffLines(a: string[], b: string[], keyFn?: (s: string) => string): LineChunk[] {
   const n = a.length, m = b.length;
   const max = n + m;
+  // Optional comparison key (e.g. trailing-whitespace-stripped) so lines that
+  // differ only in ignored noise compare equal. The emitted `text` stays the
+  // original line — only equality uses the key.
+  const ka = keyFn ? a.map(keyFn) : a;
+  const kb = keyFn ? b.map(keyFn) : b;
   const v: number[] = new Array(2 * max + 1).fill(0);
   const trace: number[][] = [];
 
@@ -36,7 +41,7 @@ export function diffLines(a: string[], b: string[]): LineChunk[] {
         x = v[k - 1 + max] + 1;
       }
       let y = x - k;
-      while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+      while (x < n && y < m && ka[x] === kb[y]) { x++; y++; }
       v[k + max] = x;
       if (x >= n && y >= m) break outer;
     }
@@ -70,7 +75,7 @@ export function diffLines(a: string[], b: string[]): LineChunk[] {
       }
     }
   }
-  while (x > 0 && y > 0 && a[x - 1] === b[y - 1]) {
+  while (x > 0 && y > 0 && ka[x - 1] === kb[y - 1]) {
     ops.unshift({ op: 'equal', leftLine: x, rightLine: y, text: a[x - 1] });
     x--; y--;
   }

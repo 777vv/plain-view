@@ -95,6 +95,17 @@ function injectStyles(): Promise<void> {
     const rendererUrl = chrome.runtime.getURL(`dist/renderers/${format}.js`);
     const renderer = await import(rendererUrl) as { render: (raw: string) => void };
     renderer.render(raw);
+
+    // Smart selection (double-click token expand + whole-token match highlight).
+    // Runs in this isolated world: it shares the page DOM/Selection and uses
+    // <mark> wrapping for highlights (the isolated world can't render CSS Custom
+    // Highlights). A nicety — never block rendering.
+    try {
+      const mod = await import(chrome.runtime.getURL('dist/ui/selection.js')) as {
+        enableSmartSelection: () => void;
+      };
+      mod.enableSmartSelection();
+    } catch { /* ignore */ }
   } catch (err) {
     console.warn('[Plain View]', err);
   }

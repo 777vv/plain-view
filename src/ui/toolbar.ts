@@ -44,6 +44,7 @@ export function createToolbar(
 
   const left = document.createElement('div');
   left.className = 'fv-toolbar-left';
+  buildMasthead(left, format, filename, raw);
 
   const right = document.createElement('div');
   right.className = 'fv-toolbar-right';
@@ -215,4 +216,36 @@ function btn(html: string, tip: string): HTMLButtonElement {
   b.innerHTML = html;
   b.dataset.tip = tip;
   return b;
+}
+
+// ── Masthead ──────────────────────────────────────────────────
+// The toolbar's left side is a "type specimen" masthead: the format set as a
+// small-caps rose label with a hairline rule, the filename promoted to a
+// title, and a muted caption (size · line count) like a catalogue note.
+// `raw` is already passed in, so the caption is computed here — no renderer
+// changes needed. (Previously format/filename/raw were received but unused
+// and the left side rendered empty.)
+function buildMasthead(host: HTMLElement, format: string, filename: string, raw: string): void {
+  const badge = document.createElement('span');
+  badge.className = 'fv-badge';
+  badge.textContent = format;
+  host.appendChild(badge);
+
+  const name = document.createElement('span');
+  name.className = 'fv-filename';
+  name.textContent = filename;
+  host.appendChild(name);
+
+  const meta = document.createElement('span');
+  meta.className = 'fv-meta';
+  meta.textContent = formatMeta(raw);
+  host.appendChild(meta);
+}
+
+function formatMeta(raw: string): string {
+  const bytes = new Blob([raw]).size; // UTF-8 byte length, not char count
+  const size = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+  const lines = raw.length === 0 ? 0 : raw.split('\n').length;
+  const grouped = lines >= 1000 ? lines.toLocaleString() : String(lines);
+  return `${size} · ${grouped} ${t('行', 'lines')}`;
 }

@@ -8,7 +8,12 @@
 :root {
   /* Fonts (mono stack carries Chinese fallback so CJK + ASCII mixes without
    * line-height jitter — see C3) */
-  --fv-font-mono: 'Consolas', 'Cascadia Code', 'Menlo', 'Monaco', 'Microsoft YaHei Mono', 'Microsoft YaHei', 'PingFang SC', monospace;
+  /* mono carries CJK fallback so CJK + ASCII mix without line-height jitter.
+   * Lead with Cascadia Code / JetBrains Mono (dev machines usually have one)
+   * — the identity is family-agnostic, carried by the mono treatment, not a
+   * bundled webfont (the extension ships zero font assets). */
+  --fv-font-mono: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Menlo', 'Monaco', 'Microsoft YaHei Mono', 'Microsoft YaHei', 'PingFang SC', monospace;
+  --fv-font-display: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Menlo', 'Microsoft YaHei Mono', 'PingFang SC', monospace;
   --fv-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --fv-font-size: 18px;
   --fv-line-height: 1.65;
@@ -49,16 +54,20 @@
   --fv-z-toolbar: 9999;
   --fv-z-tooltip: 10000;
 
-  /* ── GitHub Light (default) ── */
-  --fv-bg:            #ffffff;
-  --fv-bg-toolbar:    #f6f8fa;
-  --fv-bg-hover:      #f3f4f6;
-  --fv-hover-accent:  #fce4ef;
+  /* ── Paper Light (default) — warm off-white surfaces, own neutrals
+   *   (not borrowed GitHub Primer greys). Rose is ink, used sparingly. ── */
+  --fv-bg:            #faf9f7;
+  --fv-bg-toolbar:    #f4f2ee;
+  --fv-bg-hover:      #efece6;
+  --fv-hover-accent:  #fbe7ef;
   --fv-bg-search:     #ffffff;
-  --fv-border:        #d0d7de;
-  --fv-text:          #1f2328;
-  --fv-text-muted:    #656d76;
-  --fv-text-link:     #ed4588;
+  --fv-border:        #e4dfd6;
+  --fv-text:          #1c1a18;
+  --fv-text-muted:    #6e6862;
+  /* AA note: #ed4588 on paper is ~3.2:1 (fails body text). Links use the
+   * deeper #d81b60 (~6.9:1, passes AA); bright brand rose is reserved for
+   * large text, UI chrome, and focus rings (3:1 is fine for those). */
+  --fv-text-link:     #d81b60;
 
   /* Syntax tokens */
   --fv-key:           #c41a16;
@@ -86,6 +95,13 @@
   --fv-focus:         #ed4588;
   --fv-shadow:        0 1px 3px rgba(0,0,0,.08);
 
+  /* Rose scale — brand ink. --rose-brand for UI/large/focus (3:1 ok),
+   * --rose-ink for body-level text (passes AA on paper), --rose-tint for
+   * accent surfaces (hovers, active fills). */
+  --rose-brand:       #ed4588;
+  --rose-ink:         #d81b60;
+  --rose-tint:        #fbe7ef;
+
   /* Elevation & radius scales */
   --fv-shadow-sm:     0 1px 2px rgba(0,0,0,.05);
   --fv-shadow-md:     0 4px 12px rgba(0,0,0,.08);
@@ -95,29 +111,30 @@
   --fv-radius-lg:     12px;
   --fv-radius-pill:   999px;
 
-  /* Primary CTA gradient + matching shadow (B9: single source for the
-   * rose-pink gradient button used by playground primary btn, popup CTA,
-   * and translate buttons) */
-  --fv-primary-grad:        linear-gradient(180deg, #f56fa6 0%, #d81b60 100%);
-  --fv-primary-shadow:      0 2px 6px rgba(216,27,96,.35), 0 0 0 1px rgba(216,27,96,.25);
-  --fv-primary-shadow-hover:0 4px 12px rgba(216,27,96,.45), 0 0 0 1px rgba(216,27,96,.35);
+  /* Primary CTA — solid rose fill (the gradient read as dated SaaS chrome).
+   * Single source for the playground primary btn, popup CTA, and translate
+   * buttons. Var names kept so consumers don't change; the value is now a
+   * flat colour, which is a valid `background`. */
+  --fv-primary-grad:        #ed4588;
+  --fv-primary-shadow:      0 1px 3px rgba(216,27,96,.25), 0 0 0 1px rgba(216,27,96,.18);
+  --fv-primary-shadow-hover:0 3px 8px rgba(216,27,96,.35), 0 0 0 1px rgba(216,27,96,.28);
 
   /* Scrollbar */
-  --fv-scroll:        #d0d7de;
-  --fv-scroll-hover:  #a8b1ba;
+  --fv-scroll:        #cbc4ba;
+  --fv-scroll-hover:  #ada49a;
 }
 
 /* ── Theme: 暗黑 (VS Code Dark) ─────────────────────────────── */
 [data-fv-theme="github-dark"] {
-  --fv-bg:            #1e1e1e;
-  --fv-bg-toolbar:    #2d2d30;
-  --fv-bg-hover:      #2a2d2e;
-  --fv-hover-accent:  #3d1c2c;
-  --fv-bg-search:     #1e1e1e;
-  --fv-border:        #3c3c3c;
-  --fv-text:          #d4d4d4;
-  --fv-text-muted:    #858585;
-  --fv-text-link:     #4ec9b0;
+  --fv-bg:            #171317;
+  --fv-bg-toolbar:    #211a20;
+  --fv-bg-hover:      #2a2228;
+  --fv-hover-accent:  #3a1c2c;
+  --fv-bg-search:     #171317;
+  --fv-border:        #332a31;
+  --fv-text:          #ece4ea;
+  --fv-text-muted:    #9a8f96;
+  --fv-text-link:     #f56fa6;
 
   /* JSON 语法配色 */
   --fv-key:           #9cdcfe;
@@ -128,27 +145,28 @@
   --fv-punct:         #d4d4d4;
 
   --fv-badge-bg:      #f56fa6;
-  --fv-badge-text:    #0d1117;
+  --fv-badge-text:    #171317;
   --fv-focus:         #f56fa6;
+
+  /* Rose scale (dark) — brighter rose so ink reads on the warm near-black */
+  --rose-brand:       #f56fa6;
+  --rose-ink:         #f56fa6;
+  --rose-tint:        #3a1c2c;
+
   --fv-scroll:        #424242;
   --fv-scroll-hover:  #686868;
   --fv-shadow-sm:     0 1px 2px rgba(0,0,0,.3);
   --fv-shadow-md:     0 4px 12px rgba(0,0,0,.4);
   --fv-shadow-lg:     0 8px 24px rgba(0,0,0,.5);
-  /* Dark primary: deeper rose so it doesn't burn against #1e1e1e */
-  --fv-primary-grad:        linear-gradient(180deg, #d81b60 0%, #a01346 100%);
-  --fv-primary-shadow:      0 2px 6px rgba(216,27,96,.5), 0 0 0 1px rgba(216,27,96,.4);
-  --fv-primary-shadow-hover:0 4px 12px rgba(216,27,96,.6), 0 0 0 1px rgba(216,27,96,.5);
+  /* Dark primary: solid bright rose — pops against the warm near-black */
+  --fv-primary-grad:        #f56fa6;
+  --fv-primary-shadow:      0 1px 3px rgba(245,111,166,.3), 0 0 0 1px rgba(245,111,166,.22);
+  --fv-primary-shadow-hover:0 3px 8px rgba(245,111,166,.42), 0 0 0 1px rgba(245,111,166,.32);
 }
 
-/* Dark-mode overrides for the brand-gradient toolbar / pane headers */
-[data-fv-theme="github-dark"] .fv-toolbar,
-[data-fv-theme="github-dark"] .fv-pg-pane-header {
-  background: var(--fv-bg-toolbar);
-}
-[data-fv-theme="github-dark"] .fv-pg-chips {
-  border-image: linear-gradient(90deg, #f56fa6 0%, #fba8c9 100%) 1;
-}
+/* Dark-mode accent: a soft rose glow under the active module tab. (Toolbar
+ * and pane-header backgrounds now resolve through the shared tokens in both
+ * themes, so no dark-specific overrides are needed there.) */
 [data-fv-theme="github-dark"] .fv-pg-chip.active {
   box-shadow: 0 0 8px rgba(245,111,166,.25);
 }
@@ -207,9 +225,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
   position: fixed;
   top: 0; left: 0; right: 0;
   height: var(--fv-toolbar-h);
-  background: linear-gradient(180deg, rgba(253,242,247,.92) 0%, rgba(251,224,236,.92) 100%);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  background: var(--fv-bg-toolbar);
   border-bottom: 1px solid var(--fv-border);
   display: flex;
   align-items: center;
@@ -223,26 +239,57 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-toolbar-left  { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .fv-toolbar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
+/* Playground wordmark — the product name set in the specimen mono, the one
+ * brand mark on the workbench top bar (whose left side is otherwise empty). */
+.fv-wordmark {
+  font-family: var(--fv-font-display);
+  font-size: var(--fv-text-lg);
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--rose-ink);
+  flex-shrink: 0;
+}
+
+/* Specimen label — the format name set as a small-caps rose "tag" with a
+ * 2px hairline rule beneath (the specimen mark). No fill: rose is ink, and
+ * the rule is what makes it read as a label rather than plain text. */
 .fv-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 12px;
-  border-radius: 14px;
-  background: var(--fv-badge-bg);
-  color: var(--fv-badge-text);
-  font-size: 13px;
+  padding: 2px 0 3px;
+  background: none;
+  color: var(--rose-ink);
+  font-family: var(--fv-font-display);
+  font-size: var(--fv-text-md);
   font-weight: 600;
-  letter-spacing: .04em;
+  letter-spacing: .12em;
   text-transform: uppercase;
+  line-height: 1;
+  border-bottom: 2px solid var(--rose-brand);
   flex-shrink: 0;
 }
 
 .fv-filename {
-  color: var(--fv-text-muted);
-  font-size: 14px;
+  color: var(--fv-text);
+  font-family: var(--fv-font-display);
+  font-size: var(--fv-text-2xl);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+
+/* Catalogue caption: size · line count. Muted, small, mono — sits after the
+ * filename like the note under a type specimen. */
+.fv-meta {
+  color: var(--fv-text-muted);
+  font-family: var(--fv-font-display);
+  font-size: var(--fv-text-xs);
+  letter-spacing: .02em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  opacity: .85;
 }
 
 .fv-btn {
@@ -371,9 +418,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
   position: fixed;
   top: var(--fv-toolbar-h);
   left: 0; right: 0;
-  background: color-mix(in srgb, var(--fv-bg-toolbar) 90%, transparent);
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  background: var(--fv-bg-toolbar);
   border-bottom: 1px solid var(--fv-border);
   box-shadow: var(--fv-shadow-md);
   padding: var(--fv-space-2) var(--fv-space-3);
@@ -449,6 +494,14 @@ body.fv-size-large  { --fv-font-size: 22px; }
 .fv-highlight-current { background: rgba(237,69,136,.65) !important; color: #fff !important; border-radius: 2px; }
 [data-fv-theme="github-dark"] .fv-highlight { background: rgba(245,111,166,.3); color: inherit; }
 [data-fv-theme="github-dark"] .fv-highlight-current { background: rgba(245,111,166,.6) !important; color: #fff !important; }
+
+/* Selection-driven "highlight all whole-token matches" (<mark> wrapping). A
+ * lighter rose than the search highlight so the two can coexist. */
+.fv-sel-hl {
+  background: rgba(237, 69, 136, .26);
+  color: inherit;
+  border-radius: 2px;
+}
 
 /* ── Content Area ───────────────────────────────────────────── */
 .fv-content {
@@ -669,7 +722,7 @@ body.fv-size-large  { --fv-font-size: 22px; }
   font-family: var(--fv-font-sans);
   font-size: var(--fv-font-size);
   line-height: 1.7;
-  max-width: 860px;
+  max-width: 1120px;
   margin: 0 auto;
   color: var(--fv-text);
 }
@@ -743,6 +796,156 @@ body.fv-size-large  { --fv-font-size: 22px; }
 
 .fv-md-root input[type="checkbox"] { margin-right: 6px; }
 
+/* ── Markdown viewer: outline navigation pane (Word-style) ────── */
+.fv-content.fv-md-page { padding: 0; }   /* left padding set by JS to match the pane width */
+.fv-md-outline-wrap {
+  position: fixed;
+  top: var(--fv-toolbar-h); left: 0; bottom: 0;
+  display: flex; flex-direction: column;
+  width: 240px;             /* overridden by JS (resize / collapse) */
+  overflow: hidden;
+  border-right: 1px solid var(--fv-border);
+  background: var(--fv-bg);
+  z-index: 5;
+}
+.fv-md-outline-header {
+  flex-shrink: 0;
+  display: flex; align-items: center;
+  padding: var(--fv-space-2);
+  border-bottom: 1px solid var(--fv-border);
+}
+.fv-md-outline-toggle { padding: 6px; }
+.fv-md-outline { flex: 1; min-height: 0; overflow: auto; padding: var(--fv-space-2); }
+/* Collapsed: shrink to a slim rail that still shows the header (toggle). */
+.fv-md-outline-wrap.collapsed .fv-md-outline { display: none; }
+.fv-md-outline-wrap.collapsed .fv-md-outline-header { border-bottom: none; }
+/* Draggable resize handle between the pane and the content. */
+.fv-md-outline-drag {
+  position: fixed;
+  top: var(--fv-toolbar-h); bottom: 0;
+  width: 6px; margin-left: -3px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 6;
+}
+.fv-md-outline-drag:hover,
+.fv-md-outline-drag:active { background: var(--fv-hover-accent); }
+/* While resizing: no text selection, no hover reflow on the content, and a
+ * consistent col-resize cursor so the drag feels solid. */
+body.md-resizing { user-select: none; cursor: col-resize; }
+body.md-resizing .fv-md-root { pointer-events: none; }
+
+/* History dropdown items: file name + a delete button on the right. The hover
+ * highlight spans the whole row (including the delete button). */
+.fv-md-hist-item { display: flex; align-items: center; gap: 2px; margin: 1px 2px; border-radius: var(--fv-radius-sm); }
+.fv-md-hist-item:hover { background: var(--fv-bg-hover); }
+.fv-md-hist-name {
+  flex: 1; min-width: 0;
+  border: none; background: none;
+  text-align: left;
+  padding: 4px 8px;
+  font-family: var(--fv-font-sans); font-size: 12px; color: var(--fv-text);
+  cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fv-md-hist-del {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
+  margin-right: 2px;
+  border: none; background: none;
+  color: var(--fv-text-muted);
+  border-radius: var(--fv-radius-sm);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.fv-md-hist-item:hover .fv-md-hist-del { color: var(--fv-text); }
+.fv-md-hist-del:hover { background: color-mix(in srgb, #ef4444 18%, transparent); color: #ef4444; }
+.fv-md-outline-item {
+  display: block;
+  padding: 4px 8px;
+  color: var(--fv-text-muted);
+  font-family: var(--fv-font-sans);
+  font-size: var(--fv-font-size);   /* follows the toolbar Aa size control */
+  line-height: 1.4;
+  text-decoration: none;
+  border-radius: var(--fv-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fv-md-outline-item:hover { background: var(--fv-bg-hover); color: var(--fv-text); }
+.fv-md-outline-item.h1 { font-weight: 600; color: var(--fv-text); }
+.fv-md-outline-item.h2 { padding-left: calc(var(--fv-font-size) * 0.6); }
+.fv-md-outline-item.h3 { padding-left: calc(var(--fv-font-size) * 1.2); }
+.fv-md-outline-item.h4,
+.fv-md-outline-item.h5,
+.fv-md-outline-item.h6 { padding-left: calc(var(--fv-font-size) * 1.8); font-size: calc(var(--fv-font-size) * 0.88); }
+.fv-md-page .fv-md-root { padding: var(--fv-content-pad); max-width: 1120px; margin: 0 auto; }
+.fv-md-page .fv-raw-view { padding: var(--fv-content-pad); max-width: 1120px; margin: 0 auto; }
+/* Offset heading scroll so the fixed toolbar doesn't cover the target. */
+.fv-md-root :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: calc(var(--fv-toolbar-h) + 8px); }
+
+/* ── Playground Markdown module (file-managed shell) ─────────── */
+/* Body: sidebar | divider | editor, laid out as a row. */
+.fv-md-body { flex: 1; display: flex; min-height: 0; align-items: stretch; }
+
+/* Mode segmented control in the top bar. */
+.fv-md-modes {
+  display: inline-flex;
+  border: 1px solid var(--fv-border);
+  border-radius: var(--fv-radius-md);
+  overflow: hidden;
+}
+.fv-md-mode {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fv-text-muted);
+  font-family: var(--fv-font-sans);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--fv-fast), color var(--fv-fast);
+}
+.fv-md-mode:hover { background: var(--fv-bg-hover); }
+.fv-md-mode.active { background: var(--fv-hover-accent); color: var(--rose-ink); font-weight: 600; }
+.fv-md-mode + .fv-md-mode { border-left: 1px solid var(--fv-border); }
+
+/* Workspace holds the editor textarea + preview pane; data-mode drives which
+ * side(s) show. Grid keeps both columns equal in split mode. */
+.fv-md-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.fv-md-workspace[data-mode="edit"]    { grid-template-columns: 1fr; }
+.fv-md-workspace[data-mode="preview"] { grid-template-columns: 1fr; }
+.fv-md-workspace[data-mode="edit"] .fv-md-preview { display: none; }
+.fv-md-workspace[data-mode="preview"] .fv-md-edit { display: none; }
+
+.fv-md-edit {
+  border-right: 1px solid var(--fv-border);
+}
+.fv-md-workspace[data-mode="edit"] .fv-md-edit { border-right: none; }
+
+.fv-md-preview {
+  overflow: auto;
+  padding: var(--fv-space-4) var(--fv-space-6);
+  /* Override .fv-md-root's reading-width centre so the preview fills its pane. */
+  max-width: none;
+  margin: 0;
+}
+.fv-md-workspace[data-mode="split"] .fv-md-preview { border-left: 1px solid var(--fv-border); }
+
+/* Collapsed file-list sidebar (Collapse button). */
+.fv-md-shell.md-sidebar-collapsed .fv-memo-sidebar,
+.fv-md-shell.md-sidebar-collapsed .fv-memo-divider { display: none; }
+
+/* Fullscreen: hide only the top bar so the workspace (sidebar + editor)
+ * fills the shell. The file list stays usable. Exit via Esc. */
+.fv-md-shell.md-fullscreen .fv-pg-diff-bar { display: none; }
+
 /* ── Utilities ──────────────────────────────────────────────── */
 .fv-raw-view {
   white-space: pre-wrap;
@@ -783,8 +986,7 @@ body.fv-playground-body { overflow: hidden; }
   top: var(--fv-toolbar-h);
   left: 0; right: 0;
   display: flex;
-  flex-wrap: nowrap;
-  gap: var(--fv-space-1);
+  align-items: stretch;
   padding: 0 var(--fv-space-3);
   background: color-mix(in srgb, var(--fv-bg) 88%, transparent);
   backdrop-filter: blur(12px) saturate(1.4);
@@ -792,14 +994,24 @@ body.fv-playground-body { overflow: hidden; }
   border-bottom: 1px solid var(--fv-border);
   box-shadow: var(--fv-shadow-sm);
   z-index: var(--fv-z-chips);
+}
+/* The scrollable run of module tabs. Lives in its own track so the settings
+ * gear (a sibling of the track) stays pinned at the right end of the bar
+ * instead of scrolling away with the tabs. */
+.fv-pg-chips-track {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--fv-space-1);
   overflow-x: auto;
   overflow-y: hidden;
 }
 /* B11: hide the chip-row scrollbar — it scrolls horizontally when there are
  * more modules than fit, but a visible scrollbar here would eat vertical
  * space and look noisy. Keyboard/wheel scroll still works. */
-.fv-pg-chips::-webkit-scrollbar { height: 0; display: none; }
-.fv-pg-chips { scrollbar-width: none; }
+.fv-pg-chips-track::-webkit-scrollbar { height: 0; display: none; }
+.fv-pg-chips-track { scrollbar-width: none; }
 .fv-pg-chip { flex-shrink: 0; }
 
 /* Module switcher — IDE-style flat tabs (not pill buttons).
@@ -813,8 +1025,9 @@ body.fv-playground-body { overflow: hidden; }
   border-radius: 0;
   background: transparent;
   color: var(--fv-text-muted);
-  font-family: var(--fv-font-sans);
+  font-family: var(--fv-font-display);
   font-size: var(--fv-text-md);
+  letter-spacing: .02em;
   cursor: pointer;
   white-space: nowrap;
   transition: color var(--fv-fast), background var(--fv-fast);
@@ -849,6 +1062,80 @@ body.fv-playground-body { overflow: hidden; }
   font-family: var(--fv-font-sans);
   font-size: 14px;
 }
+
+/* Settings gear — a sibling of the scrollable tab track, so it always sits at
+ * the far right end of the bar. (Placed after .fv-pg-chip so equal-specificity
+ * overrides win.) */
+.fv-pg-settings-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  border-left: 1px solid var(--fv-border);
+}
+.fv-pg-settings-btn svg { width: 16px; height: 16px; display: block; }
+
+/* Settings popover */
+.fv-pg-settings {
+  position: fixed;
+  z-index: var(--fv-z-picker);
+  min-width: 224px;
+  background: var(--fv-bg);
+  border: 1px solid var(--fv-border);
+  border-radius: var(--fv-radius-md);
+  box-shadow: var(--fv-shadow-lg);
+  padding: var(--fv-space-2);
+  font-family: var(--fv-font-sans);
+}
+.fv-pg-settings-head {
+  font-size: var(--fv-text-xs);
+  color: var(--fv-text-muted);
+  padding: var(--fv-space-1) var(--fv-space-2) var(--fv-space-2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.fv-pg-settings-list { display: flex; flex-direction: column; gap: 2px; }
+.fv-pg-settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fv-space-2);
+  padding: 7px var(--fv-space-2);
+  border-radius: var(--fv-radius-sm);
+  cursor: grab;
+  font-size: var(--fv-text-md);
+}
+.fv-pg-settings-row:hover { background: var(--fv-bg-hover); }
+.fv-pg-settings-row:active { cursor: grabbing; }
+.fv-pg-settings-row.dragging { opacity: .4; }
+.fv-pg-settings-row.is-disabled .fv-pg-settings-name { color: var(--fv-text-muted); opacity: .55; }
+.fv-pg-settings-handle {
+  color: var(--fv-text-muted);
+  opacity: .45;
+  user-select: none;
+  letter-spacing: -3px;
+  font-size: 13px;
+}
+.fv-pg-settings-row:hover .fv-pg-settings-handle { opacity: .9; }
+.fv-pg-settings-name { flex: 1; min-width: 0; font-family: var(--fv-font-display); }
+
+/* Compact toggle switch (settings panel) */
+.fv-pg-toggle { position: relative; width: 30px; height: 17px; flex-shrink: 0; cursor: pointer; }
+.fv-pg-toggle input { opacity: 0; width: 0; height: 0; }
+.fv-pg-toggle-track {
+  position: absolute; inset: 0;
+  background: var(--fv-border);
+  border-radius: 999px;
+  transition: background var(--fv-fast);
+}
+.fv-pg-toggle-track::after {
+  content: ''; position: absolute;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; top: 2px; left: 2px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  transition: transform var(--fv-fast);
+}
+.fv-pg-toggle input:checked + .fv-pg-toggle-track { background: var(--rose-brand); }
+.fv-pg-toggle input:checked + .fv-pg-toggle-track::after { transform: translateX(13px); }
+.fv-pg-toggle input:focus-visible + .fv-pg-toggle-track { outline: 2px solid var(--fv-focus); outline-offset: 2px; }
 
 .fv-pg-split {
   position: fixed;
@@ -928,7 +1215,7 @@ body.fv-playground-body { overflow: hidden; }
   gap: 8px;
   background: var(--fv-bg-toolbar);
   border-bottom: 1px solid var(--fv-border);
-  font-family: var(--fv-font-sans);
+  font-family: var(--fv-font-display);
   font-size: 14px;
   font-weight: 700;
   color: var(--fv-text);
@@ -1228,7 +1515,7 @@ body.fv-playground-body { overflow: hidden; }
   padding: 0 16px;
   display: flex;
   align-items: center;
-  font-family: var(--fv-font-sans);
+  font-family: var(--fv-font-display);
   font-size: 14px;
   font-weight: 600;
   color: var(--fv-text);
@@ -1298,7 +1585,11 @@ body.fv-playground-body { overflow: hidden; }
 .fv-diff-bg-row.op-equal  { background: transparent; }
 .fv-diff-bg-row.op-delete { background: color-mix(in srgb, #ef4444 14%, var(--fv-bg)); }
 .fv-diff-bg-row.op-insert { background: color-mix(in srgb, #22c55e 14%, var(--fv-bg)); }
-.fv-diff-bg-row.op-change { background: color-mix(in srgb, #eab308 12%, var(--fv-bg)); }
+/* A paired "change" line is tinted by its side's role — red on the left
+ * (old), green on the right (new) — matching GitHub/IntelliJ convention,
+ * with word-level highlights on top. (Was a single yellow on both sides.) */
+.fv-diff-bg-left  .fv-diff-bg-row.op-change { background: color-mix(in srgb, #ef4444 12%, var(--fv-bg)); }
+.fv-diff-bg-right .fv-diff-bg-row.op-change { background: color-mix(in srgb, #22c55e 12%, var(--fv-bg)); }
 .fv-diff-word-del { background: color-mix(in srgb, #ef4444 40%, var(--fv-bg)); }
 .fv-diff-word-ins { background: color-mix(in srgb, #22c55e 40%, var(--fv-bg)); }
 
@@ -1329,7 +1620,7 @@ body.fv-playground-body { overflow: hidden; }
 .fv-diff-hunk-actions {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1350,6 +1641,29 @@ body.fv-playground-body { overflow: hidden; }
   background: var(--fv-badge-bg);
   border-color: var(--fv-focus);
   color: var(--fv-focus);
+}
+
+/* Change-navigation buttons + counter + whitespace toggle in the diff bar */
+.fv-diff-nav { padding: 6px 10px; }
+.fv-diff-nav-count {
+  font-family: var(--fv-font-mono);
+  font-size: var(--fv-text-sm);
+  color: var(--fv-text-muted);
+  min-width: 44px;
+  text-align: center;
+  white-space: nowrap;
+}
+/* "Ignore whitespace" toggle — pressed state */
+.fv-diff-toggle.active {
+  background: var(--fv-hover-accent);
+  color: var(--rose-ink);
+  border-color: var(--fv-focus);
+}
+/* One-shot ring flash on a centre apply-group when navigated to */
+.fv-diff-flash { animation: fv-diff-flash .9s ease-out; }
+@keyframes fv-diff-flash {
+  0%   { box-shadow: 0 0 0 3px color-mix(in srgb, var(--fv-focus) 55%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 /* Outer wrapper for the diff view — sized like .fv-pg-split so toggling
@@ -1609,6 +1923,20 @@ body.fv-playground-body { overflow: hidden; }
 }
 .fv-memo-body::placeholder { color: var(--fv-text-muted); }
 .fv-memo-body:focus { outline: none; box-shadow: inset 0 0 0 1px var(--fv-focus); }
+
+/* Mirror-overlay highlight for textareas (playground input + memo editor).
+ * A transparent-text div carrying the same content sits behind the textarea;
+ * match spans are painted on it (the textarea above has a transparent bg).
+ * Same lighter rose as the Custom-Highlight selection match, so they read as
+ * one system across rendered text and input fields. */
+.fv-ta-mirror {
+  border-radius: inherit;
+}
+.fv-ta-hl {
+  background: rgba(237, 69, 136, .26);
+  color: inherit;
+  border-radius: 2px;
+}
 
 /* ── QR code mode ───────────────────────────────────────────── */
 .fv-pg-qr-wrap {
